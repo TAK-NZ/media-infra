@@ -26,9 +26,6 @@ export interface MediaEcsServiceProps {
     srts: elbv2.NetworkTargetGroup;
     hls: elbv2.NetworkTargetGroup;
     api: elbv2.NetworkTargetGroup;
-    webrtc: elbv2.NetworkTargetGroup;
-    webrtcIceUdp: elbv2.NetworkTargetGroup;
-    webrtcIceTcp: elbv2.NetworkTargetGroup;
   };
   stackNameComponent: string;
   containerImageUri?: string;
@@ -228,7 +225,7 @@ export class MediaEcsService extends Construct {
       enableExecuteCommand: props.envConfig.ecs.enableEcsExec ?? false,
     });
 
-    // Register with target groups
+    // Register with target groups (5 total — Fargate awsvpc limit)
     props.targetGroups.rtmp.addTarget(this.service.loadBalancerTarget({
       containerName: 'MediaMtxContainer',
       containerPort: MEDIAMTX_PORTS.RTMP,
@@ -249,20 +246,6 @@ export class MediaEcsService extends Construct {
     props.targetGroups.api.addTarget(this.service.loadBalancerTarget({
       containerName: 'MediaMtxContainer',
       containerPort: MEDIAMTX_PORTS.API_HTTPS,
-    }));
-    props.targetGroups.webrtc.addTarget(this.service.loadBalancerTarget({
-      containerName: 'MediaMtxContainer',
-      containerPort: MEDIAMTX_PORTS.WEBRTC,
-    }));
-    props.targetGroups.webrtcIceUdp.addTarget(this.service.loadBalancerTarget({
-      containerName: 'MediaMtxContainer',
-      containerPort: MEDIAMTX_PORTS.WEBRTC_ICE,
-      protocol: ecs.Protocol.UDP,
-    }));
-    props.targetGroups.webrtcIceTcp.addTarget(this.service.loadBalancerTarget({
-      containerName: 'MediaMtxContainer',
-      containerPort: MEDIAMTX_PORTS.WEBRTC_ICE,
-      protocol: ecs.Protocol.TCP,
     }));
   }
 }

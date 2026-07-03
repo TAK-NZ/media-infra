@@ -53,8 +53,6 @@ export class MediaSecurityGroups extends Construct {
     this.nlb.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(MEDIAMTX_PORTS.API_HTTPS), 'MediaMTX API HTTPS');
     this.nlb.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(9996), 'MediaMTX Playback HTTPS');
     this.nlb.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC), 'WebRTC');
-    this.nlb.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.udp(MEDIAMTX_PORTS.WEBRTC_ICE), 'WebRTC ICE UDP');
-    this.nlb.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC_ICE), 'WebRTC ICE TCP');
 
     // MediaMTX inbound rules from NLB
     this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(MEDIAMTX_PORTS.RTMP), 'RTMP from NLB');
@@ -63,9 +61,10 @@ export class MediaSecurityGroups extends Construct {
     this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(MEDIAMTX_PORTS.HLS_HTTPS), 'HLS from NLB');
     this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(MEDIAMTX_PORTS.API_HTTPS), 'API from NLB');
     this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(9996), 'Playback from NLB');
-    this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC), 'WebRTC from NLB');
-    this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.udp(MEDIAMTX_PORTS.WEBRTC_ICE), 'WebRTC ICE UDP from NLB');
-    this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC_ICE), 'WebRTC ICE TCP from NLB');
+    this.mediaMtx.addIngressRule(ec2.Peer.securityGroupId(this.nlb.securityGroupId), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC), 'WebRTC signalling from NLB');
+    // ICE media bypasses NLB — clients connect directly to the ECS task IP via STUN
+    this.mediaMtx.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.udp(MEDIAMTX_PORTS.WEBRTC_ICE), 'WebRTC ICE UDP direct');
+    this.mediaMtx.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC_ICE), 'WebRTC ICE TCP direct');
 
     // NLB outbound rules for health checks and forwarding
     this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(MEDIAMTX_PORTS.API_HTTPS), 'Health check to VPC API');
@@ -74,9 +73,7 @@ export class MediaSecurityGroups extends Construct {
     this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(MEDIAMTX_PORTS.RTSP), 'Health check to VPC RTSP');
     this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.udp(MEDIAMTX_PORTS.SRTS), 'Health check to VPC SRTS');
     this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(MEDIAMTX_PORTS.HLS_HTTPS), 'Health check to VPC HLS');
-    this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC), 'Forward to VPC WebRTC');
-    this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.udp(MEDIAMTX_PORTS.WEBRTC_ICE), 'Forward to VPC WebRTC ICE UDP');
-    this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC_ICE), 'Forward to VPC WebRTC ICE TCP');
+    this.nlb.addEgressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(MEDIAMTX_PORTS.WEBRTC), 'Forward WebRTC signalling to VPC');
 
     // EFS inbound rules from MediaMTX
     this.efs.addIngressRule(ec2.Peer.securityGroupId(this.mediaMtx.securityGroupId), ec2.Port.tcp(2049), 'NFS from MediaMTX');

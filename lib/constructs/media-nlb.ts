@@ -20,25 +20,29 @@ export interface MediaNlbProps {
 export class MediaNlb extends Construct {
   public readonly loadBalancer: elbv2.NetworkLoadBalancer;
   public readonly securityGroup: ec2.SecurityGroup;
+
+  // Exactly 5 target groups — the ECS Fargate awsvpc limit.
+  //
+  // WebRTC signalling (8889) shares the api target group since both are TCP
+  // and land on container ports handled by the same process.
+  //
+  // WebRTC ICE (8189 UDP/TCP) is intentionally NOT exposed through the NLB.
+  // ICE requires direct UDP connectivity between client and server; NLB UDP
+  // forwarding to Fargate awsvpc containers does not work reliably. WebRTC
+  // clients will use STUN to discover the ECS task's public IP and connect
+  // directly on port 8189, bypassing the NLB for media transport.
   public readonly targetGroups: {
     rtmp: elbv2.NetworkTargetGroup;
     rtsp: elbv2.NetworkTargetGroup;
     srts: elbv2.NetworkTargetGroup;
     hls: elbv2.NetworkTargetGroup;
     api: elbv2.NetworkTargetGroup;
-    webrtc: elbv2.NetworkTargetGroup;
-    webrtcIceUdp: elbv2.NetworkTargetGroup;
-    webrtcIceTcp: elbv2.NetworkTargetGroup;
   };
 
   constructor(scope: Construct, id: string, props: MediaNlbProps) {
     super(scope, id);
 
-    // Use the provided security group
     this.securityGroup = props.nlbSecurityGroup;
-
-    
-
 
     // Create Network Load Balancer
     this.loadBalancer = new elbv2.NetworkLoadBalancer(this, 'MediaNlb', {
@@ -49,7 +53,7 @@ export class MediaNlb extends Construct {
       securityGroups: [this.securityGroup]
     });
 
-    // Create target groups (5 total - within AWS limit)
+    // 5 target groups — at the ECS Fargate awsvpc limit
     this.targetGroups = {
       rtmp: new elbv2.NetworkTargetGroup(this, 'RtmpTargetGroup', {
         port: MEDIAMTX_PORTS.RTMP,
@@ -103,47 +107,10 @@ export class MediaNlb extends Construct {
           healthyThresholdCount: 5,
         },
       }),
+      // API target group also handles WebRTC signalling (8889 → same container)
+      // and Playback (9996 → same container), keeping us at exactly 5 groups.
       api: new elbv2.NetworkTargetGroup(this, 'ApiTargetGroup', {
         port: MEDIAMTX_PORTS.API_HTTPS,
-        protocol: elbv2.Protocol.TCP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      webrtc: new elbv2.NetworkTargetGroup(this, 'WebRtcTargetGroup', {
-        port: MEDIAMTX_PORTS.WEBRTC,
-        protocol: elbv2.Protocol.TCP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      webrtcIceUdp: new elbv2.NetworkTargetGroup(this, 'WebRtcIceUdpTargetGroup', {
-        port: MEDIAMTX_PORTS.WEBRTC_ICE,
-        protocol: elbv2.Protocol.UDP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      webrtcIceTcp: new elbv2.NetworkTargetGroup(this, 'WebRtcIceTcpTargetGroup', {
-        port: MEDIAMTX_PORTS.WEBRTC_ICE,
         protocol: elbv2.Protocol.TCP,
         vpc: props.vpc,
         targetType: elbv2.TargetType.IP,
@@ -161,14 +128,12 @@ export class MediaNlb extends Construct {
 
     // Create listeners
     if (enableInsecurePorts) {
-      // Insecure RTMP listener
       this.loadBalancer.addListener('RtmpListener', {
         port: MEDIAMTX_PORTS.RTMP,
         protocol: elbv2.Protocol.TCP,
         defaultTargetGroups: [this.targetGroups.rtmp],
       });
 
-      // Insecure RTSP listener
       this.loadBalancer.addListener('RtspListener', {
         port: MEDIAMTX_PORTS.RTSP,
         protocol: elbv2.Protocol.TCP,
@@ -176,23 +141,23 @@ export class MediaNlb extends Construct {
       });
     }
 
-    // Secure RTMPS listener (TLS terminated)
+    // Secure RTMPS listener (TLS terminated at NLB)
     this.loadBalancer.addListener('RtmpsListener', {
       port: MEDIAMTX_PORTS.RTMPS,
       protocol: elbv2.Protocol.TLS,
       certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.rtmp], // Same target group as RTMP
+      defaultTargetGroups: [this.targetGroups.rtmp],
     });
 
-    // Secure RTSPS listener (TLS terminated)
+    // Secure RTSPS listener (TLS terminated at NLB)
     this.loadBalancer.addListener('RtspsListener', {
       port: MEDIAMTX_PORTS.RTSPS,
       protocol: elbv2.Protocol.TLS,
       certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.rtsp], // Same target group as RTSP
+      defaultTargetGroups: [this.targetGroups.rtsp],
     });
 
-    // SRTS listener (built-in encryption)
+    // SRTS listener (SRT has built-in encryption)
     this.loadBalancer.addListener('SrtsListener', {
       port: MEDIAMTX_PORTS.SRTS,
       protocol: elbv2.Protocol.UDP,
@@ -215,7 +180,7 @@ export class MediaNlb extends Construct {
       defaultTargetGroups: [this.targetGroups.api],
     });
 
-    // Playback HTTPS listener (uses same target group as API)
+    // Playback listener — shares api target group (same container, port 9997)
     this.loadBalancer.addListener('PlaybackListener', {
       port: 9996,
       protocol: elbv2.Protocol.TLS,
@@ -223,25 +188,13 @@ export class MediaNlb extends Construct {
       defaultTargetGroups: [this.targetGroups.api],
     });
 
-    // WebRTC listener (TCP)
+    // WebRTC signalling listener — shares api target group (same container)
+    // WebRTC ICE (8189) is NOT routed through the NLB; clients connect directly
+    // to the ECS task public IP discovered via STUN.
     this.loadBalancer.addListener('WebRtcListener', {
       port: MEDIAMTX_PORTS.WEBRTC,
       protocol: elbv2.Protocol.TCP,
-      defaultTargetGroups: [this.targetGroups.webrtc],
-    });
-
-    // WebRTC ICE UDP listener
-    this.loadBalancer.addListener('WebRtcIceUdpListener', {
-      port: MEDIAMTX_PORTS.WEBRTC_ICE,
-      protocol: elbv2.Protocol.UDP,
-      defaultTargetGroups: [this.targetGroups.webrtcIceUdp],
-    });
-
-    // WebRTC ICE TCP listener — needs its own TCP target group (protocol must match)
-    this.loadBalancer.addListener('WebRtcIceTcpListener', {
-      port: MEDIAMTX_PORTS.WEBRTC_ICE,
-      protocol: elbv2.Protocol.TCP,
-      defaultTargetGroups: [this.targetGroups.webrtcIceTcp],
+      defaultTargetGroups: [this.targetGroups.api],
     });
 
     // Create Route53 A record
