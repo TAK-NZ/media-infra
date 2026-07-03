@@ -1,12 +1,12 @@
 {
   "name": "mediamtx-persist",
-  "version": "8.3.1",
+  "version": "9.5.0",
   "description": "MediaMTX configuration persistence and API server for TAK.NZ",
   "type": "module",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node index.js",
+    "start": "node dist/index.js",
     "lint": "eslint index.ts lib/*.ts routes/*.ts",
     "test": "tsx --test test/*.test.ts"
   },
@@ -17,24 +17,22 @@
     "@openaddresses/batch-error": "^2.13.1",
     "@openaddresses/batch-schema": "^10.19.0",
     "@sinclair/typebox": "^0.34.41",
-    "axios": "^1.13.2",
     "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2",
+    "express": "^5.0.0",
+    "jsonwebtoken": "^9.0.3",
     "m3u8-parser": "^7.2.0",
     "node-cache": "^5.1.2",
     "node-cron": "^4.0.0",
     "tsx": "^4.19.2",
-    "undici": "^7.16.0",
-    "uuid": "^13.0.0"
+    "undici": "^8.0.0",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
-    "@types/express": "^4.17.21",
+    "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.9",
-    "@types/node": "^25.0.0",
-    "@types/uuid": "^10.0.0",
-    "eslint": "^9.9.0",
-    "typescript": "^5.6.3"
+    "@types/node": "^26.1.0",
+    "eslint": "^10.0.0",
+    "typescript": "^6.0.0"
   }
 }

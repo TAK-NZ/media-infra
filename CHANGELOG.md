@@ -12,6 +12,27 @@
 
 ### Pending Release
 
+### v9.5.0 - 2026-07-02
+
+- :arrow_up: Update MediaMTX to v1.19.0 (multi-stage Docker build from source)
+- :tada: Add internal MediaMTX auth endpoint (`127.0.0.1:9995`) with 5-minute in-memory cache to reduce CloudTAK API load
+- :tada: Enable WebRTC support — NLB listeners, security group rules, and ECS port mappings for ports 8889 (TCP) and 8189 (UDP/TCP)
+- :tada: Add ACM certificate export support — container fetches TLS cert at startup via `ACM_CERTIFICATE_ARN` and enables WebRTC encryption
+- :rocket: Add `ACM_CERTIFICATE_ARN` environment variable to ECS task definition; grant task role ACM export permissions
+- :rocket: Rewrite `start` script from bash to POSIX sh; replace `yq` dependency with `sed`; use `exec /mediamtx` for proper PID 1
+- :rocket: Switch to multi-stage Dockerfile — TypeScript compiled at build time, no `tsx` runtime needed, Node 24
+- :rocket: HLS proxy now supports HEAD requests, `Range`/conditional request headers, streaming pipeline (no full-segment buffering), and abort-on-disconnect
+- :rocket: Manifest rewriting uses SHA-256 hashes instead of random UUIDs for deterministic signed URLs; adds LL-HLS tag support (`#EXT-X-PART`, `#EXT-X-PRELOAD-HINT`)
+- :bug: Fix do-while pagination off-by-one in `listMediaMTXPathsMap` and `listCloudTAKPaths`
+- :bug: Remove `any` casts in proxy and response streaming; narrow `verifySignedUrl` return type
+- :arrow_up: Update `undici` to v8, `uuid` to v14, `eslint` to v10, `typescript` to v6
+- :arrow_up: Remove unused `axios` dependency from docker-container
+- :white_check_mark: Update ECS mocked test to include WebRTC target groups
+
+### v8.4.0 - 2025-12-29
+
+- :arrow_up: Update MediaMTX to v1.15.6
+
 ### v8.3.1 - 2025-12-16
 
 - :arrow_up: Update MediaMTX to v1.15.5

@@ -35,8 +35,7 @@ export class MediaEcsService extends Construct {
   public readonly service: ecs.FargateService;
   public readonly taskDefinition: ecs.FargateTaskDefinition;
 
-  constructor(scope: Construct, id: string, props: MediaEcsServiceProps) {
-    super(scope, id);
+  constructor(scope: Construct, id: string, props: MediaEcsServiceProps) {    super(scope, id);
 
     // Create log group
     const logGroup = new logs.LogGroup(this, 'MediaMtxLogGroup', {
@@ -141,7 +140,7 @@ export class MediaEcsService extends Construct {
       }),
       environment: {
         API_URL: props.secrets.cloudTakUrl,
-        CLOUDTAK_Config_media_url: props.secrets.cloudTakUrl,
+        CLOUDTAK_Config_media_url: `https://${props.network.mediaHostname}.${props.network.hostedZoneName}`,
       },
       secrets: {
         SigningSecret: ecs.Secret.fromSecretsManager(props.secrets.signingSecret),
@@ -181,8 +180,7 @@ export class MediaEcsService extends Construct {
     props.infrastructure.kmsKey.grantDecrypt(executionRole);
 
     // Add ECS Exec permissions if enabled
-    if (props.envConfig.ecs.enableEcsExec) {
-      this.taskDefinition.taskRole.addManagedPolicy(
+    if (props.envConfig.ecs.enableEcsExec) {      this.taskDefinition.taskRole.addManagedPolicy(
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')
       );
       
@@ -212,7 +210,7 @@ export class MediaEcsService extends Construct {
       enableExecuteCommand: props.envConfig.ecs.enableEcsExec ?? false,
     });
 
-    // Register with target groups
+    // Register with target groups (5 total — Fargate awsvpc limit)
     props.targetGroups.rtmp.addTarget(this.service.loadBalancerTarget({
       containerName: 'MediaMtxContainer',
       containerPort: MEDIAMTX_PORTS.RTMP,
