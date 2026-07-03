@@ -26,6 +26,9 @@ export interface MediaEcsServiceProps {
     srts: elbv2.NetworkTargetGroup;
     hls: elbv2.NetworkTargetGroup;
     api: elbv2.NetworkTargetGroup;
+    webrtc: elbv2.NetworkTargetGroup;
+    webrtcIceUdp: elbv2.NetworkTargetGroup;
+    webrtcIceTcp: elbv2.NetworkTargetGroup;
   };
   stackNameComponent: string;
   containerImageUri?: string;
@@ -35,8 +38,7 @@ export class MediaEcsService extends Construct {
   public readonly service: ecs.FargateService;
   public readonly taskDefinition: ecs.FargateTaskDefinition;
 
-  constructor(scope: Construct, id: string, props: MediaEcsServiceProps) {
-    super(scope, id);
+  constructor(scope: Construct, id: string, props: MediaEcsServiceProps) {    super(scope, id);
 
     // Create log group
     const logGroup = new logs.LogGroup(this, 'MediaMtxLogGroup', {
@@ -142,6 +144,7 @@ export class MediaEcsService extends Construct {
       environment: {
         API_URL: props.secrets.cloudTakUrl,
         CLOUDTAK_Config_media_url: props.secrets.cloudTakUrl,
+        ACM_CERTIFICATE_ARN: props.network.certificate.certificateArn,
       },
       secrets: {
         SigningSecret: ecs.Secret.fromSecretsManager(props.secrets.signingSecret),
@@ -170,6 +173,9 @@ export class MediaEcsService extends Construct {
       { containerPort: MEDIAMTX_PORTS.SRTS, protocol: ecs.Protocol.UDP }, // SRTS
       { containerPort: MEDIAMTX_PORTS.HLS_HTTPS, protocol: ecs.Protocol.TCP }, // HLS
       { containerPort: MEDIAMTX_PORTS.API_HTTPS, protocol: ecs.Protocol.TCP }, // API + Playback
+      { containerPort: MEDIAMTX_PORTS.WEBRTC, protocol: ecs.Protocol.TCP }, // WebRTC
+      { containerPort: MEDIAMTX_PORTS.WEBRTC_ICE, protocol: ecs.Protocol.UDP }, // WebRTC ICE UDP
+      { containerPort: MEDIAMTX_PORTS.WEBRTC_ICE, protocol: ecs.Protocol.TCP }, // WebRTC ICE TCP
     );
 
     // Grant secrets access
@@ -180,9 +186,19 @@ export class MediaEcsService extends Construct {
     props.infrastructure.kmsKey.grantDecrypt(this.taskDefinition.taskRole);
     props.infrastructure.kmsKey.grantDecrypt(executionRole);
 
+    // Grant ACM permissions for TLS certificate export (used by start script)
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'acm:DescribeCertificate',
+        'acm:ExportCertificate',
+        'acm:GetCertificate'
+      ],
+      resources: ['*']
+    }));
+
     // Add ECS Exec permissions if enabled
-    if (props.envConfig.ecs.enableEcsExec) {
-      this.taskDefinition.taskRole.addManagedPolicy(
+    if (props.envConfig.ecs.enableEcsExec) {      this.taskDefinition.taskRole.addManagedPolicy(
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore')
       );
       
@@ -233,6 +249,20 @@ export class MediaEcsService extends Construct {
     props.targetGroups.api.addTarget(this.service.loadBalancerTarget({
       containerName: 'MediaMtxContainer',
       containerPort: MEDIAMTX_PORTS.API_HTTPS,
+    }));
+    props.targetGroups.webrtc.addTarget(this.service.loadBalancerTarget({
+      containerName: 'MediaMtxContainer',
+      containerPort: MEDIAMTX_PORTS.WEBRTC,
+    }));
+    props.targetGroups.webrtcIceUdp.addTarget(this.service.loadBalancerTarget({
+      containerName: 'MediaMtxContainer',
+      containerPort: MEDIAMTX_PORTS.WEBRTC_ICE,
+      protocol: ecs.Protocol.UDP,
+    }));
+    props.targetGroups.webrtcIceTcp.addTarget(this.service.loadBalancerTarget({
+      containerName: 'MediaMtxContainer',
+      containerPort: MEDIAMTX_PORTS.WEBRTC_ICE,
+      protocol: ecs.Protocol.TCP,
     }));
   }
 }

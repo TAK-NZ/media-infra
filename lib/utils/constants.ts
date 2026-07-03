@@ -12,5 +12,7 @@ export const MEDIAMTX_PORTS = {
   SRTS: 8890,
   HLS_HTTPS: 8888,
   API_HTTPS: 9997,
+  WEBRTC: 8889,
+  WEBRTC_ICE: 8189,
 } as const;
 

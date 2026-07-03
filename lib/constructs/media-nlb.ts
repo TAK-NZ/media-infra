@@ -26,6 +26,9 @@ export class MediaNlb extends Construct {
     srts: elbv2.NetworkTargetGroup;
     hls: elbv2.NetworkTargetGroup;
     api: elbv2.NetworkTargetGroup;
+    webrtc: elbv2.NetworkTargetGroup;
+    webrtcIceUdp: elbv2.NetworkTargetGroup;
+    webrtcIceTcp: elbv2.NetworkTargetGroup;
   };
 
   constructor(scope: Construct, id: string, props: MediaNlbProps) {
@@ -113,6 +116,45 @@ export class MediaNlb extends Construct {
           healthyThresholdCount: 5,
         },
       }),
+      webrtc: new elbv2.NetworkTargetGroup(this, 'WebRtcTargetGroup', {
+        port: MEDIAMTX_PORTS.WEBRTC,
+        protocol: elbv2.Protocol.TCP,
+        vpc: props.vpc,
+        targetType: elbv2.TargetType.IP,
+        healthCheck: {
+          protocol: elbv2.Protocol.TCP,
+          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
+          interval: cdk.Duration.seconds(30),
+          timeout: cdk.Duration.seconds(10),
+          healthyThresholdCount: 5,
+        },
+      }),
+      webrtcIceUdp: new elbv2.NetworkTargetGroup(this, 'WebRtcIceUdpTargetGroup', {
+        port: MEDIAMTX_PORTS.WEBRTC_ICE,
+        protocol: elbv2.Protocol.UDP,
+        vpc: props.vpc,
+        targetType: elbv2.TargetType.IP,
+        healthCheck: {
+          protocol: elbv2.Protocol.TCP,
+          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
+          interval: cdk.Duration.seconds(30),
+          timeout: cdk.Duration.seconds(10),
+          healthyThresholdCount: 5,
+        },
+      }),
+      webrtcIceTcp: new elbv2.NetworkTargetGroup(this, 'WebRtcIceTcpTargetGroup', {
+        port: MEDIAMTX_PORTS.WEBRTC_ICE,
+        protocol: elbv2.Protocol.TCP,
+        vpc: props.vpc,
+        targetType: elbv2.TargetType.IP,
+        healthCheck: {
+          protocol: elbv2.Protocol.TCP,
+          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
+          interval: cdk.Duration.seconds(30),
+          timeout: cdk.Duration.seconds(10),
+          healthyThresholdCount: 5,
+        },
+      }),
     };
 
     const enableInsecurePorts = props.enableInsecurePorts;
@@ -179,6 +221,27 @@ export class MediaNlb extends Construct {
       protocol: elbv2.Protocol.TLS,
       certificates: [props.certificate],
       defaultTargetGroups: [this.targetGroups.api],
+    });
+
+    // WebRTC listener (TCP)
+    this.loadBalancer.addListener('WebRtcListener', {
+      port: MEDIAMTX_PORTS.WEBRTC,
+      protocol: elbv2.Protocol.TCP,
+      defaultTargetGroups: [this.targetGroups.webrtc],
+    });
+
+    // WebRTC ICE UDP listener
+    this.loadBalancer.addListener('WebRtcIceUdpListener', {
+      port: MEDIAMTX_PORTS.WEBRTC_ICE,
+      protocol: elbv2.Protocol.UDP,
+      defaultTargetGroups: [this.targetGroups.webrtcIceUdp],
+    });
+
+    // WebRTC ICE TCP listener — needs its own TCP target group (protocol must match)
+    this.loadBalancer.addListener('WebRtcIceTcpListener', {
+      port: MEDIAMTX_PORTS.WEBRTC_ICE,
+      protocol: elbv2.Protocol.TCP,
+      defaultTargetGroups: [this.targetGroups.webrtcIceTcp],
     });
 
     // Create Route53 A record

@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import cors from 'cors';
 import { config } from './lib/config.js';
 import type { Config } from './lib/config.js';
@@ -9,6 +11,10 @@ import { StandardResponse } from './lib/types.js';
 
 const pkg = JSON.parse(String(fs.readFileSync(new URL('./package.json', import.meta.url))));
 
+const SERVER_KEY_PATH = '/server.key';
+const SERVER_CERT_PATH = '/server.crt';
+const INTERNAL_AUTH_PORT = 9995;
+
 process.on('uncaughtExceptionMonitor', (exception, origin) => {
     console.trace('FATAL', exception, origin);
 });
@@ -18,6 +24,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (!process.env.CLOUDTAK_Config_media_url) throw new Error('CLOUDTAK_Config_media_url Env Var not set');
     if (!process.env.SigningSecret) throw new Error('SigningSecret Env Var not set');
 
+    await server(config);
+
     try {
         await sync(config);
     } catch (err) {
@@ -25,8 +33,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
 
     await schedule(config);
-
-    await server(config);
 }
 
 export default async function server(config: Config): Promise<void> {
@@ -83,14 +89,25 @@ export default async function server(config: Config): Promise<void> {
         }
     );
 
-    return new Promise((resolve) => {
-        app.listen(9997, () => {
-            if (!config.silent) {
-                console.log('ok - http://localhost:9997');
-            }
+    const tls = process.env.ACM_CERTIFICATE_ARN ? {
+        key: fs.readFileSync(SERVER_KEY_PATH),
+        cert: fs.readFileSync(SERVER_CERT_PATH)
+    } : undefined;
 
-            return resolve();
+    const protocol = tls ? 'https' : 'http';
+    const nodeServer = tls ? https.createServer(tls, app) : http.createServer(app);
+    const authServer = http.createServer(app);
+
+    return new Promise((resolve) => {
+        authServer.listen(INTERNAL_AUTH_PORT, '127.0.0.1', () => {
+            nodeServer.listen(9997, () => {
+                if (!config.silent) {
+                    console.log(`ok - ${protocol}://localhost:9997`);
+                    console.log(`ok - http://127.0.0.1:${INTERNAL_AUTH_PORT}`);
+                }
+
+                return resolve();
+            });
         });
     });
 }
-

@@ -91,7 +91,10 @@ describe('MediaEcsService Construct (Mocked)', () => {
       rtsp: { addTarget: jest.fn() } as any,
       srts: { addTarget: jest.fn() } as any,
       hls: { addTarget: jest.fn() } as any,
-      api: { addTarget: jest.fn() } as any
+      api: { addTarget: jest.fn() } as any,
+      webrtc: { addTarget: jest.fn() } as any,
+      webrtcIceUdp: { addTarget: jest.fn() } as any,
+      webrtcIceTcp: { addTarget: jest.fn() } as any
     };
 
     signingSecret = {
