@@ -52,7 +52,7 @@ RUN set -eux; \
 # Final Stage
 FROM ${MEDIAMTX_BASE_IMAGE}
 
-RUN apk add --no-cache aws-cli jq openssl
+RUN apk add --no-cache openssl
 
 # Replace the pre-built MediaMTX binary with our source-built one
 COPY --from=mediamtx-builder /mediamtx /mediamtx

@@ -141,7 +141,6 @@ export class MediaEcsService extends Construct {
       environment: {
         API_URL: props.secrets.cloudTakUrl,
         CLOUDTAK_Config_media_url: props.secrets.cloudTakUrl,
-        ACM_CERTIFICATE_ARN: props.network.certificate.certificateArn,
       },
       secrets: {
         SigningSecret: ecs.Secret.fromSecretsManager(props.secrets.signingSecret),
@@ -182,17 +181,6 @@ export class MediaEcsService extends Construct {
     // Grant KMS permissions for secrets decryption (following TAK infrastructure pattern)
     props.infrastructure.kmsKey.grantDecrypt(this.taskDefinition.taskRole);
     props.infrastructure.kmsKey.grantDecrypt(executionRole);
-
-    // Grant ACM permissions for TLS certificate export (used by start script)
-    taskRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'acm:DescribeCertificate',
-        'acm:ExportCertificate',
-        'acm:GetCertificate'
-      ],
-      resources: ['*']
-    }));
 
     // Add ECS Exec permissions if enabled
     if (props.envConfig.ecs.enableEcsExec) {      this.taskDefinition.taskRole.addManagedPolicy(
