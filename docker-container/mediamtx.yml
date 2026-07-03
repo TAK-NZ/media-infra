@@ -46,5 +46,8 @@ webrtcAddress: :8889
 srt: yes
 srtAddress: :8890
 
+# MoQ (Media over QUIC) — disabled, requires HTTPS/HTTP3 certificates
+moq: no
+
 pathDefaults:
   rtspDemuxMpegts: yes
