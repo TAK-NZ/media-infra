@@ -52,8 +52,6 @@ RUN set -eux; \
 # Final Stage
 FROM ${MEDIAMTX_BASE_IMAGE}
 
-RUN apk add --no-cache openssl
-
 # Replace the pre-built MediaMTX binary with our source-built one
 COPY --from=mediamtx-builder /mediamtx /mediamtx
 
@@ -77,11 +75,6 @@ EXPOSE 9996
 
 # HLS
 EXPOSE 8888
-
-# WebRTC
-EXPOSE 8889
-EXPOSE 8189
-EXPOSE 8189/udp
 
 COPY docker-container/mediamtx.yml /mediamtx.yml
 COPY docker-container/start /start

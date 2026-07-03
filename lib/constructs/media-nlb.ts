@@ -188,15 +188,6 @@ export class MediaNlb extends Construct {
       defaultTargetGroups: [this.targetGroups.api],
     });
 
-    // WebRTC signalling listener — shares api target group (same container)
-    // WebRTC ICE (8189) is NOT routed through the NLB; clients connect directly
-    // to the ECS task public IP discovered via STUN.
-    this.loadBalancer.addListener('WebRtcListener', {
-      port: MEDIAMTX_PORTS.WEBRTC,
-      protocol: elbv2.Protocol.TCP,
-      defaultTargetGroups: [this.targetGroups.api],
-    });
-
     // Create Route53 A record
     new route53.ARecord(this, 'MediaARecord', {
       zone: props.hostedZone,

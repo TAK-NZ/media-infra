@@ -140,7 +140,7 @@ export class MediaEcsService extends Construct {
       }),
       environment: {
         API_URL: props.secrets.cloudTakUrl,
-        CLOUDTAK_Config_media_url: props.secrets.cloudTakUrl,
+        CLOUDTAK_Config_media_url: `https://${props.network.mediaHostname}.${props.network.hostedZoneName}`,
       },
       secrets: {
         SigningSecret: ecs.Secret.fromSecretsManager(props.secrets.signingSecret),
@@ -169,9 +169,6 @@ export class MediaEcsService extends Construct {
       { containerPort: MEDIAMTX_PORTS.SRTS, protocol: ecs.Protocol.UDP }, // SRTS
       { containerPort: MEDIAMTX_PORTS.HLS_HTTPS, protocol: ecs.Protocol.TCP }, // HLS
       { containerPort: MEDIAMTX_PORTS.API_HTTPS, protocol: ecs.Protocol.TCP }, // API + Playback
-      { containerPort: MEDIAMTX_PORTS.WEBRTC, protocol: ecs.Protocol.TCP }, // WebRTC
-      { containerPort: MEDIAMTX_PORTS.WEBRTC_ICE, protocol: ecs.Protocol.UDP }, // WebRTC ICE UDP
-      { containerPort: MEDIAMTX_PORTS.WEBRTC_ICE, protocol: ecs.Protocol.TCP }, // WebRTC ICE TCP
     );
 
     // Grant secrets access

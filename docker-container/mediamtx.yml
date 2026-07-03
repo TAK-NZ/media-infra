@@ -7,7 +7,6 @@ logDestinations: [stdout]
 
 readTimeout: 30s
 writeTimeout: 30s
-writeQueueSize: 64
 
 authMethod: http
 authHTTPAddress: http://127.0.0.1:9995/auth
@@ -37,14 +36,12 @@ hls: yes
 hlsAddress: :8888
 hlsEncryption: no
 
-webrtc: yes
+# WebRTC signalling is accepted on port 8889 (forwarded from the NLB),
+# but ICE media transport requires direct UDP connectivity which is not
+# available on Fargate. WebRTC is therefore disabled until migrating to
+# EC2 with host networking.
+webrtc: no
 webrtcAddress: :8889
-webrtcEncryption: no
-webrtcAllowOrigins: ['*']
-webrtcLocalUDPAddress: :8189
-webrtcLocalTCPAddress: :8189
-webrtcIPsFromInterfaces: no
-webrtcAdditionalHosts: []
 
 srt: yes
 srtAddress: :8890
