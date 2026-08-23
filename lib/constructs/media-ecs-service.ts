@@ -11,6 +11,9 @@ import type { InfrastructureConfig, NetworkConfig, SecretsConfig, StorageConfig 
 /** Where the EFS access point is mounted inside the container */
 const EFS_MOUNT_PATH = '/opt/mediamtx';
 
+/** Fallback when no MediaMTX version is configured; matches the Dockerfile default */
+const DEFAULT_MEDIAMTX_VERSION = '1.19.0';
+
 export interface MediaEcsServiceProps {
   environment: 'prod' | 'dev-test';
   envConfig: ContextEnvironmentConfig;
@@ -108,11 +111,19 @@ export class MediaEcsService extends Construct {
     if (props.containerImageUri) {
       containerImage = ecs.ContainerImage.fromRegistry(props.containerImageUri);
     } else {
+      const mediaMtxVersion = props.envConfig.mediamtx?.version ?? DEFAULT_MEDIAMTX_VERSION;
+
       const dockerAsset = new ecrAssets.DockerImageAsset(this, 'MediaMtxDockerAsset', {
         directory: '.',
         file: 'docker/media-infra/Dockerfile',
         // Must match the Graviton instance the capacity provider launches
         platform: ecrAssets.Platform.LINUX_ARM64,
+        buildArgs: {
+          // Drives both the runtime base image and the source build, so a single
+          // configured version keeps the two in step.
+          MEDIAMTX_BASE_IMAGE: `bluenviron/mediamtx:${mediaMtxVersion}-ffmpeg`,
+          MEDIAMTX_BRANCH: `v${mediaMtxVersion}`,
+        },
         exclude: [
           'node_modules/**',
           'cdk.out/**',

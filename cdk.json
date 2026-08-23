@@ -47,7 +47,7 @@
         "mediamtxImageTag": "latest"
       },
       "mediamtx": {
-        "version": "1.15.5",
+        "version": "1.19.0",
         "buildRevision": 1
       }
     },
@@ -81,7 +81,7 @@
         "mediamtxImageTag": "stable"
       },
       "mediamtx": {
-        "version": "1.15.5",
+        "version": "1.19.0",
         "buildRevision": 1
       }
     },
