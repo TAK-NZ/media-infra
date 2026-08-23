@@ -114,6 +114,7 @@ describe('MediaEcsService Construct (Mocked)', () => {
           kmsKey,
           securityGroups: {
             instance: securityGroup,
+            nlb: securityGroup,
             efs: securityGroup
           }
         },
@@ -135,8 +136,8 @@ describe('MediaEcsService Construct (Mocked)', () => {
           }
         },
         stackNameComponent: 'Dev',
-        certificate,
-        capacityProvider
+        capacityProvider,
+        iceAddress: '203.0.113.10'
       });
     }).not.toThrow();
   });

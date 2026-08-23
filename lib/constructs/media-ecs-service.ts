@@ -3,7 +3,6 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Construct } from 'constructs';
 import { ContextEnvironmentConfig } from '../stack-config';
 import { MEDIAMTX_PORTS } from '../utils/constants';
@@ -20,10 +19,16 @@ export interface MediaEcsServiceProps {
   secrets: SecretsConfig;
   storage: StorageConfig;
   stackNameComponent: string;
-  /** Exportable certificate the container uses to terminate TLS itself */
-  certificate: acm.ICertificate;
   /** EC2 capacity provider the service is scheduled onto */
   capacityProvider: ecs.AsgCapacityProvider;
+  /**
+   * Elastic IP advertised to WebRTC clients as an ICE candidate.
+   *
+   * Passed in rather than read from instance metadata: the container would
+   * otherwise race the boot-time EIP association and could advertise the
+   * instance's ephemeral public address instead.
+   */
+  iceAddress: string;
   containerImageUri?: string;
 }
 
@@ -69,18 +74,6 @@ export class MediaEcsService extends Construct {
         `arn:aws:elasticfilesystem:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:file-system/${props.storage.efs.fileSystemId}`,
         `arn:aws:elasticfilesystem:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:access-point/${props.storage.efs.accessPointId}`,
       ],
-    }));
-
-    // The entrypoint exports the certificate at startup so MediaMTX and the
-    // Node API server can serve TLS. Scoped to this stack's certificate only.
-    taskRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'acm:DescribeCertificate',
-        'acm:ExportCertificate',
-        'acm:GetCertificate',
-      ],
-      resources: [props.certificate.certificateArn],
     }));
 
     const executionRole = new iam.Role(this, 'MediaMtxExecutionRole', {
@@ -158,7 +151,10 @@ export class MediaEcsService extends Construct {
       environment: {
         API_URL: props.secrets.cloudTakUrl,
         CLOUDTAK_Config_media_url: `https://${props.network.mediaHostname}.${props.network.hostedZoneName}`,
-        ACM_CERTIFICATE_ARN: props.certificate.certificateArn,
+        // MediaMTX reads MTX_* variables directly. ICE candidates must reference
+        // a routable address, and the instance's own interfaces only carry
+        // private IPs.
+        MTX_WEBRTCADDITIONALHOSTS: props.iceAddress,
         LOG_LEVEL: props.envConfig.logLevel ?? 'info',
         StackName: cdk.Stack.of(this).stackName,
         Environment: props.stackNameComponent,
@@ -187,15 +183,17 @@ export class MediaEcsService extends Construct {
     });
 
     // Under host networking the host port always equals the container port.
+    //
+    // The TLS listener ports (RTMPS 1936, RTSPS 8555) are absent: those terminate
+    // at the load balancer, which forwards to the plaintext ports below.
     container.addPortMappings(
       { containerPort: MEDIAMTX_PORTS.RTMP, protocol: ecs.Protocol.TCP },
-      { containerPort: MEDIAMTX_PORTS.RTMPS, protocol: ecs.Protocol.TCP },
       { containerPort: MEDIAMTX_PORTS.RTSP, protocol: ecs.Protocol.TCP },
-      { containerPort: MEDIAMTX_PORTS.RTSPS, protocol: ecs.Protocol.TCP },
       { containerPort: MEDIAMTX_PORTS.SRTS, protocol: ecs.Protocol.UDP },
       { containerPort: MEDIAMTX_PORTS.PLAYBACK, protocol: ecs.Protocol.TCP },
       { containerPort: MEDIAMTX_PORTS.API, protocol: ecs.Protocol.TCP },
       { containerPort: MEDIAMTX_PORTS.WEBRTC, protocol: ecs.Protocol.TCP },
+      // ICE bypasses the load balancer and is reached directly on the Elastic IP.
       { containerPort: MEDIAMTX_PORTS.WEBRTC_ICE, protocol: ecs.Protocol.UDP },
       { containerPort: MEDIAMTX_PORTS.WEBRTC_ICE, protocol: ecs.Protocol.TCP },
     );

@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import https from 'node:https';
 import cors from 'cors';
 import { config } from './lib/config.js';
 import type { Config } from './lib/config.js';
@@ -11,18 +10,17 @@ import { StandardResponse } from './lib/types.js';
 
 const pkg = JSON.parse(String(fs.readFileSync(new URL('./package.json', import.meta.url))));
 
-/** TLS material written by the entrypoint from the exportable ACM certificate */
-const SERVER_KEY_PATH = '/server.key';
-const SERVER_CERT_PATH = '/server.crt';
-
 /**
- * Loopback-only port MediaMTX calls for authentication. Kept on 127.0.0.1 and
- * plain HTTP: under host network mode a wildcard bind would be internet-facing.
+ * Loopback-only port MediaMTX calls for authentication. Kept on 127.0.0.1: under
+ * host network mode a wildcard bind would be internet-facing.
  */
 const INTERNAL_AUTH_PORT = 9995;
 
-/** Public API / HLS proxy port, served over TLS */
-const PUBLIC_API_PORT = 9997;
+/**
+ * API and HLS proxy port. Plaintext HTTP — the Network Load Balancer terminates
+ * TLS and forwards decrypted traffic here.
+ */
+const API_PORT = 9997;
 
 process.on('uncaughtExceptionMonitor', (exception, origin) => {
     console.trace('FATAL', exception, origin);
@@ -98,21 +96,14 @@ export default async function server(config: Config): Promise<void> {
         }
     );
 
-    // The public port is internet-facing with no load balancer in front, so it
-    // must serve TLS itself using the certificate the entrypoint exported.
-    const tls = {
-        key: fs.readFileSync(SERVER_KEY_PATH),
-        cert: fs.readFileSync(SERVER_CERT_PATH)
-    };
-
-    const publicServer = https.createServer(tls, app);
+    const apiServer = http.createServer(app);
     const authServer = http.createServer(app);
 
     return new Promise((resolve) => {
         authServer.listen(INTERNAL_AUTH_PORT, '127.0.0.1', () => {
-            publicServer.listen(PUBLIC_API_PORT, () => {
+            apiServer.listen(API_PORT, () => {
                 if (!config.silent) {
-                    console.log(`ok - https://localhost:${PUBLIC_API_PORT}`);
+                    console.log(`ok - http://localhost:${API_PORT}`);
                     console.log(`ok - http://127.0.0.1:${INTERNAL_AUTH_PORT}`);
                 }
 

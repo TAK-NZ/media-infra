@@ -15,59 +15,58 @@
 ### v10.0.0 - 2026-08-23
 
 > [!WARNING]
-> This release replaces the Fargate + Network Load Balancer deployment with EC2
-> and a static Elastic IP. The change is not backwards compatible:
+> This release moves the media service from Fargate to EC2 with `host` network
+> mode. The change is not backwards compatible:
 >
-> - **DNS now resolves to an Elastic IP**, not an NLB alias. The `LoadBalancerDnsName`
->   stack output is replaced by `MediaIp`.
 > - **A dedicated ECS cluster is created by this stack.** The shared BaseInfra
 >   cluster is Fargate-only and cannot host EC2 capacity providers.
-> - **An exportable ACM certificate is created by this stack.** Exportable public
->   certificates are charged at issuance and at each renewal, unlike standard ACM
->   certificates.
 > - **MediaMTX's HLS listener (8888) is no longer publicly reachable.** It binds to
 >   loopback and is served through the authenticated proxy on 9997. Clients using
 >   `:8888` directly must move to `:9997`.
 > - **Container instances run in public subnets** and require ARM64 (Graviton)
 >   instance types to match the image architecture.
+> - **A new `WebRtcIceIp` output exposes an Elastic IP** used solely as the WebRTC
+>   ICE address. It is not published in DNS.
 
-#### Migrate from Fargate + NLB to EC2 with host networking
+#### Move from Fargate to EC2 with host networking
 
 WebRTC ICE needs direct UDP connectivity between client and server. Fargate's
-`awsvpc` networking cannot provide that path, and a Network Load Balancer cannot
-proxy it — which is also why the previous release had to ship with WebRTC
-disabled. Running on EC2 with `host` network mode and a static Elastic IP removes
-both constraints.
+`awsvpc` networking cannot provide that path, which is why the previous release
+had to ship with WebRTC disabled. `host` network mode on EC2 removes that
+constraint.
 
 - :tada: Enable WebRTC end to end — signalling on 8889 plus ICE on 8189 over UDP with TCP fallback
 - :rocket: Replace `FargateTaskDefinition`/`FargateService` with `Ec2TaskDefinition`/`Ec2Service` using `NetworkMode.HOST`
 - :rocket: Add EC2 capacity: dedicated ECS cluster, explicit `AWS::EC2::LaunchTemplate`, Auto Scaling Group and ECS capacity provider with managed scaling
-- :rocket: Replace the Network Load Balancer with an Elastic IP that the instance associates to itself once the media API is serving, via a systemd unit in user data
-- :rocket: Route53 now publishes a plain A record to the Elastic IP with a 60s TTL instead of an NLB alias
 - :rocket: Build the container image for ARM64 (Graviton) and validate that the configured instance type is a Graviton family
-- :rocket: Remove the 5-target-group ceiling that Fargate `awsvpc` imposed; every protocol is now served directly
 
-#### TLS moves into the container
+#### Split the client path in two
 
-With no load balancer in the path, MediaMTX and the Node API server terminate TLS
-themselves.
+Everything except ICE stays behind the load balancer. ICE alone needs a direct
+route, so it gets a static Elastic IP on the instance.
 
-- :tada: Create an exportable ACM certificate (`allowExport`) scoped to the media subdomain, validated via the imported hosted zone
-- :rocket: Terminate TLS in-container for RTMPS (1936), RTSPS (8555), playback (9996), WebRTC (8889) and the API/HLS proxy (9997)
-- :rocket: Export the certificate with the AWS SDK and `node:crypto` instead of `aws-cli`, `jq` and `openssl`. Installing those needed a `RUN` step in the final image stage, which cannot execute when cross-building for ARM64 from an x86-64 host without QEMU. Node is already in the image, and dropping the aws-cli Python runtime takes the image from roughly 700 MB to 411 MB
-- :rocket: Scope the task role's `acm:ExportCertificate` permission to this stack's certificate only
-- :rocket: Treat a failed certificate export as fatal rather than degrading to plaintext on internet-facing ports
-- :rocket: Stop importing the shared BaseInfra certificate — export cannot be enabled on an existing certificate, and enabling it there would expose that key material to every consumer
+- :rocket: The load balancer terminates TLS for RTMPS (1936), RTSPS (8555), playback (9996), WebRTC signalling (8889) and the API/HLS proxy (9997), and passes SRT (8890) through unmodified since SRT encrypts itself
+- :rocket: Add an Elastic IP used solely as the WebRTC ICE address. The instance associates it at boot and MediaMTX advertises it as an ICE candidate, so it never appears in DNS — clients receive it inside the WebRTC negotiation
+- :rocket: Pass the ICE address in from CDK rather than reading instance metadata, which would otherwise race the boot-time association and could advertise the instance's ephemeral public address
+- :rocket: Attach target groups to the Auto Scaling Group rather than the ECS service, which sidesteps the ECS limit of five target groups per service. Health checks probe the API port, so a target whose task is not running is still marked unhealthy
+
+#### Keep TLS out of the container
+
+The load balancer integrates with ACM natively, so the shared BaseInfra
+certificate is used as-is and the container holds no certificate material.
+
+- :rocket: Every MediaMTX listener and the Node API server are plaintext; TLS terminates at the load balancer and forwards decrypted traffic inside the VPC
+- :rocket: The container carries no certificate handling code, no ACM permissions on the task role, and no certificate tooling in the image
 
 #### Reduce network exposure
 
-- :rocket: Bind MediaMTX's HLS listener and control API to loopback; the only public HLS path is the proxy on 9997, which enforces lease authorisation and rewrites manifests to signed URLs
-- :rocket: Collapse three security groups into two now that there is no load balancer to front the container
-- :rocket: `enableInsecurePorts` now governs whether the plaintext RTMP/RTSP ingest ports are reachable at all
+- :rocket: Bind MediaMTX's HLS listener and control API to loopback; the only path to HLS is the proxy on 9997, which enforces lease authorisation and rewrites manifests to signed URLs
+- :rocket: The instance accepts non-ICE ports only from the load balancer's security group. ICE is the single port open to the internet on the instance itself
+- :rocket: `enableInsecurePorts` now governs whether the plaintext RTMP/RTSP ingest listeners exist at all
 
 #### Reliability and correctness
 
-- :bug: Enable `ECS_ENABLE_TASK_IAM_ROLE_NETWORK_HOST` on the container instance. Task IAM roles are off by default under `host` network mode, so without this the container receives no task credentials and both the certificate export and EFS IAM authorisation fail
+- :bug: Enable `ECS_ENABLE_TASK_IAM_ROLE_NETWORK_HOST` on the container instance. Task IAM roles are off by default under `host` network mode, so without this the container receives no task credentials and EFS IAM authorisation fails
 - :bug: Fix the MediaMTX build's architecture smoke test, which read `go env GOARCH` after that variable had been overridden for cross-compilation. The check always believed the binary was natively runnable and tried to execute an ARM64 binary on the build host
 - :bug: Fix EFS being destroyed on stack deletion in production — the removal policy was hardcoded and now follows `general.removalPolicy`
 - :bug: Fix `npx cdk` resolving to the CDK app instead of the CDK CLI; `package.json` declared a `bin` entry named `cdk` that shadowed the real CLI once `bin/cdk.js` had been compiled
@@ -75,13 +74,14 @@ themselves.
 - :rocket: Hold full capacity through deployments (`MinimumHealthyPercent: 100`) and enable the deployment circuit breaker with rollback; a restarting media server drops every in-flight stream
 - :rocket: Tune UDP socket buffers on the host so MediaMTX gets large buffers from the OS default, avoiding the `setsockopt` failure that previously killed the container
 - :rocket: Move the EFS mount to `/opt/mediamtx` and place mount targets in the public subnets to match the instance
+- :rocket: Build the final image stage with no `RUN` steps at all. Commands there execute as the target architecture, which cannot run when cross-building for ARM64 from an x86-64 host without QEMU binfmt handlers
 - :rocket: Propagate service tags to tasks and enable enhanced Container Insights in both environments
 - :rocket: Make MediaMTX log level configurable per environment and overridable from the CLI
 
 #### Tests
 
-- :white_check_mark: Add `media-infra-synth.test.ts` — 26 assertions against the synthesised template covering host networking, absence of any load balancer, Elastic IP, certificate exportability, per-port exposure, deployment configuration and EFS retention
-- :white_check_mark: Remove tests that asserted on local literals rather than real behaviour and encoded the retired NLB design
+- :white_check_mark: Add `media-infra-synth.test.ts` — 36 assertions against the synthesised template covering host networking, TLS termination per port, target group wiring, the ICE path bypassing the load balancer, network exposure, deployment configuration and EFS retention
+- :white_check_mark: Remove tests that asserted on local literals rather than real behaviour
 
 #### Dependencies
 

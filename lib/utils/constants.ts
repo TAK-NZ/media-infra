@@ -5,31 +5,40 @@
 export const DEFAULT_AWS_REGION = 'ap-southeast-2';
 
 /**
- * Ports exposed by the MediaMTX container.
+ * MediaMTX ports.
  *
- * The container runs with `host` network mode on an EC2 instance with a public
- * Elastic IP, so these are the ports clients connect to directly. TLS is
- * terminated by MediaMTX (and by the Node API server on {@link API}) using the
- * exportable ACM certificate, not by a load balancer.
+ * Client traffic arrives by two paths. Everything except WebRTC ICE goes through
+ * the Network Load Balancer, which terminates TLS and forwards plaintext to the
+ * container. ICE reaches the instance's Elastic IP directly, because it needs a
+ * direct UDP path that no load balancer can proxy.
+ *
+ * Ports marked "load balancer only" are listener ports the container never binds
+ * — the balancer decrypts them and forwards to the plaintext port behind.
  */
 export const MEDIAMTX_PORTS = {
-  /** RTMP ingest, plaintext. Exposed only when enableInsecurePorts is set. */
+  /** RTMP ingest, plaintext. Reachable only when enableInsecurePorts is set. */
   RTMP: 1935,
-  /** RTMPS ingest, TLS terminated by MediaMTX */
+  /** RTMPS ingest. Load balancer only; forwards to {@link RTMP}. */
   RTMPS: 1936,
-  /** RTSP ingest, plaintext. Exposed only when enableInsecurePorts is set. */
+  /** RTSP ingest, plaintext. Reachable only when enableInsecurePorts is set. */
   RTSP: 8554,
-  /** RTSPS ingest, TLS terminated by MediaMTX */
+  /** RTSPS ingest. Load balancer only; forwards to {@link RTSP}. */
   RTSPS: 8555,
-  /** SRT ingest over UDP; SRT provides its own encryption */
+  /** SRT ingest over UDP; passes through the balancer unmodified as SRT encrypts itself */
   SRTS: 8890,
-  /** MediaMTX recording playback, TLS terminated by MediaMTX */
+  /** MediaMTX recording playback */
   PLAYBACK: 9996,
-  /** CloudTAK media API and HLS proxy served by the Node app over HTTPS */
+  /** CloudTAK media API and HLS proxy served by the Node app */
   API: 9997,
-  /** WebRTC signalling (WHEP/WHIP), TLS terminated by MediaMTX */
+  /** WebRTC signalling (WHEP/WHIP) */
   WEBRTC: 8889,
-  /** WebRTC ICE media transport, UDP with TCP fallback on the same port */
+  /**
+   * WebRTC ICE media transport, UDP with TCP fallback on the same port.
+   *
+   * Bypasses the load balancer entirely and is reached on the instance's Elastic
+   * IP. WebRTC media is DTLS-encrypted using keys exchanged in the SDP, so it
+   * needs no TLS certificate.
+   */
   WEBRTC_ICE: 8189,
 } as const;
 

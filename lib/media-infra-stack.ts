@@ -2,13 +2,14 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { StackProps, Fn } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as kms from 'aws-cdk-lib/aws-kms';
 
 // Construct imports
 import { MediaSecurityGroups } from './constructs/media-security-groups';
-import { MediaCertificate } from './constructs/media-certificate';
+import { MediaNlb } from './constructs/media-nlb';
 import { MediaEndpoint } from './constructs/media-endpoint';
 import { MediaEc2Compute } from './constructs/media-ec2-compute';
 import { MediaEcsService } from './constructs/media-ecs-service';
@@ -35,13 +36,21 @@ export interface MediaInfraStackProps extends StackProps {
  * Main CDK stack for the TAK Media Infrastructure.
  *
  * MediaMTX runs on an EC2-backed ECS capacity provider using `host` network
- * mode, reached directly on a static Elastic IP. There is no load balancer:
- * WebRTC ICE needs direct UDP connectivity that neither an NLB nor Fargate
- * awsvpc networking can provide.
+ * mode. Two distinct client paths reach it:
  *
- * Foundational resources (VPC, KMS key, hosted zone, ECR repo) are imported
- * from BaseInfra; secrets and the CloudTAK service URL come from the CloudTAK
- * stack. The ECS cluster and the TLS certificate are owned by this stack.
+ *   - A Network Load Balancer terminates TLS for every client-facing port and
+ *     forwards plaintext into the VPC. This is the only name in DNS.
+ *   - WebRTC ICE reaches a static Elastic IP on the instance directly, because
+ *     ICE requires direct UDP connectivity that no load balancer can proxy.
+ *     Clients learn that address inside the WebRTC negotiation.
+ *
+ * `host` network mode on EC2 is what makes the second path possible, and is why
+ * this does not run on Fargate.
+ *
+ * Foundational resources (VPC, KMS key, certificate, hosted zone, ECR repo) are
+ * imported from BaseInfra; secrets and the CloudTAK service URL come from the
+ * CloudTAK stack. The ECS cluster is owned by this stack because EC2 capacity
+ * providers are cluster-scoped.
  */
 export class MediaInfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: MediaInfraStackProps) {
@@ -81,6 +90,12 @@ export class MediaInfraStack extends cdk.Stack {
       ],
       vpcCidrBlock: Fn.importValue(createBaseImportValue(stackNameComponent, BASE_EXPORT_NAMES.VPC_CIDR_IPV4))
     });
+
+    // Shared ACM certificate. Used by the load balancer, which integrates with
+    // ACM natively — the certificate never needs to leave AWS.
+    const certificate = acm.Certificate.fromCertificateArn(this, 'Certificate',
+      Fn.importValue(createBaseImportValue(stackNameComponent, BASE_EXPORT_NAMES.CERTIFICATE_ARN))
+    );
 
     // Route53 Hosted Zone
     const hostedZoneId = Fn.importValue(createBaseImportValue(stackNameComponent, BASE_EXPORT_NAMES.HOSTED_ZONE_ID));
@@ -140,19 +155,6 @@ export class MediaInfraStack extends cdk.Stack {
     });
 
     // =================
-    // CREATE EXPORTABLE TLS CERTIFICATE
-    // =================
-
-    // Owned by this stack rather than imported from BaseInfra: export must be
-    // enabled at issuance, and enabling it on the shared BaseInfra certificate
-    // would expose that key material to every consumer of it.
-    const mediaCertificate = new MediaCertificate(this, 'MediaCertificate', {
-      hostedZone,
-      domainName: mediaFqdn,
-      stackNameComponent,
-    });
-
-    // =================
     // CREATE EFS
     // =================
 
@@ -165,15 +167,27 @@ export class MediaInfraStack extends cdk.Stack {
     });
 
     // =================
-    // CREATE PUBLIC ENDPOINT (ELASTIC IP + DNS)
+    // CREATE WEBRTC ICE ENDPOINT (ELASTIC IP)
     // =================
 
     // Created before the compute layer: the instance user data needs the EIP
-    // allocation ID so it can associate the address to itself once healthy.
+    // allocation ID so it can associate the address to itself at boot.
     const endpoint = new MediaEndpoint(this, 'MediaEndpoint', {
+      stackNameComponent,
+    });
+
+    // =================
+    // CREATE NETWORK LOAD BALANCER
+    // =================
+
+    const nlb = new MediaNlb(this, 'MediaNlb', {
+      vpc,
+      certificate,
       hostedZone,
       mediaHostname,
       stackNameComponent,
+      enableInsecurePorts,
+      nlbSecurityGroup: securityGroups.nlb,
     });
 
     // =================
@@ -186,6 +200,7 @@ export class MediaInfraStack extends cdk.Stack {
       stackNameComponent,
       instanceSecurityGroup: securityGroups.instance,
       elasticIp: endpoint.elasticIp,
+      targetGroups: nlb.allTargetGroups(),
     });
 
     // =================
@@ -198,13 +213,14 @@ export class MediaInfraStack extends cdk.Stack {
       kmsKey,
       securityGroups: {
         instance: securityGroups.instance,
+        nlb: securityGroups.nlb,
         efs: securityGroups.efs
       }
     };
 
     const network: NetworkConfig = {
       hostedZone,
-      certificate: mediaCertificate.certificate,
+      certificate,
       mediaHostname,
       hostedZoneName
     };
@@ -234,8 +250,8 @@ export class MediaInfraStack extends cdk.Stack {
       secrets,
       storage,
       stackNameComponent,
-      certificate: mediaCertificate.certificate,
       capacityProvider: compute.capacityProvider,
+      iceAddress: endpoint.ipAddress,
       containerImageUri
     });
 
@@ -246,10 +262,16 @@ export class MediaInfraStack extends cdk.Stack {
     // STACK OUTPUTS
     // =================
 
-    new cdk.CfnOutput(this, 'MediaIp', {
-      value: endpoint.elasticIp.ref,
-      description: 'Static Elastic IP of the MediaMTX server',
-      exportName: `${resolvedStackName}-MediaIp`
+    new cdk.CfnOutput(this, 'LoadBalancerDnsName', {
+      value: nlb.loadBalancer.loadBalancerDnsName,
+      description: 'Network Load Balancer DNS name',
+      exportName: `${resolvedStackName}-LoadBalancerDnsName`
+    });
+
+    new cdk.CfnOutput(this, 'WebRtcIceIp', {
+      value: endpoint.ipAddress,
+      description: 'Elastic IP advertised to WebRTC clients as an ICE candidate',
+      exportName: `${resolvedStackName}-WebRtcIceIp`
     });
 
     new cdk.CfnOutput(this, 'MediaUrl', {
@@ -274,12 +296,6 @@ export class MediaInfraStack extends cdk.Stack {
       value: mediaFqdn,
       description: 'MediaMTX fully qualified hostname',
       exportName: `${resolvedStackName}-MediaHostname`
-    });
-
-    new cdk.CfnOutput(this, 'MediaCertificateArn', {
-      value: mediaCertificate.certificate.certificateArn,
-      description: 'Exportable ACM certificate ARN used by the media service',
-      exportName: `${resolvedStackName}-MediaCertificateArn`
     });
 
     new cdk.CfnOutput(this, 'EcsClusterName', {

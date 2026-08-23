@@ -4,6 +4,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { ContextEnvironmentConfig } from '../stack-config';
@@ -15,8 +16,15 @@ export interface MediaEc2ComputeProps {
   stackNameComponent: string;
   /** Security group applied to the container instance */
   instanceSecurityGroup: ec2.SecurityGroup;
-  /** Static Elastic IP the instance attaches to itself once healthy */
+  /** Elastic IP the instance attaches to itself at boot, used for WebRTC ICE */
   elasticIp: ec2.CfnEIP;
+  /**
+   * Load balancer target groups the Auto Scaling Group registers with.
+   *
+   * Attached to the ASG rather than the ECS service so the ECS limit of five
+   * target groups per service does not apply.
+   */
+  targetGroups: elbv2.INetworkTargetGroup[];
 }
 
 /**
@@ -73,7 +81,6 @@ export class MediaEc2Compute extends Construct {
         clusterName: this.cluster.clusterName,
         region: cdk.Stack.of(this).region,
         allocationId: props.elasticIp.attrAllocationId,
-        apiPort: MEDIAMTX_PORTS.API,
       })
     );
 
@@ -121,6 +128,14 @@ export class MediaEc2Compute extends Construct {
     });
 
     this.cluster.addAsgCapacityProvider(this.capacityProvider);
+
+    // Register instances with the load balancer. Doing this on the ASG rather
+    // than the ECS service sidesteps the five-target-groups-per-service ECS
+    // limit; each group's health check probes the API port, so an instance whose
+    // task is not running is still marked unhealthy.
+    for (const targetGroup of props.targetGroups) {
+      this.autoScalingGroup.attachToNetworkTargetGroup(targetGroup);
+    }
   }
 
   /**
@@ -133,7 +148,6 @@ export class MediaEc2Compute extends Construct {
     clusterName: string;
     region: string;
     allocationId: string;
-    apiPort: number;
   }): string {
     const templatePath = path.join(__dirname, 'assets', 'media-instance-userdata.sh');
     const template = fs.readFileSync(templatePath, 'utf8');
@@ -141,7 +155,6 @@ export class MediaEc2Compute extends Construct {
     return template
       .replace(/__CLUSTER_NAME__/g, values.clusterName)
       .replace(/__AWS_REGION__/g, values.region)
-      .replace(/__EIP_ALLOCATION_ID__/g, values.allocationId)
-      .replace(/__API_PORT__/g, String(values.apiPort));
+      .replace(/__EIP_ALLOCATION_ID__/g, values.allocationId);
   }
 }

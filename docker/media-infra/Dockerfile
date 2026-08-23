@@ -10,7 +10,7 @@ WORKDIR /app
 COPY docker-container/package.json docker-container/package-lock.json docker-container/tsconfig.json ./
 RUN npm ci
 
-COPY docker-container/index.ts docker-container/export-certificate.ts ./
+COPY docker-container/index.ts ./
 COPY docker-container/lib/ ./lib/
 COPY docker-container/routes/ ./routes/
 
@@ -63,9 +63,8 @@ FROM ${MEDIAMTX_BASE_IMAGE}
 
 # This stage deliberately contains no RUN steps. Its commands would execute as
 # TARGETARCH, which cannot run when cross-building for ARM64 from an x86-64 host
-# unless QEMU binfmt handlers are registered. Certificate export is handled by
-# dist/export-certificate.js using the AWS SDK and node:crypto instead of
-# aws-cli, jq and openssl, so nothing needs installing here.
+# unless QEMU binfmt handlers are registered. Nothing needs installing: TLS is
+# terminated at the load balancer, so no certificate tooling is required.
 
 # Replace the pre-built MediaMTX binary with our source-built one
 COPY --from=mediamtx-builder /mediamtx /mediamtx
@@ -73,13 +72,15 @@ COPY --from=mediamtx-builder /mediamtx /mediamtx
 # Copy a target-platform Node runtime without executing package-manager steps
 COPY --from=node-runtime /usr/local/ /usr/local/
 
-# RTMP / RTMPS
-EXPOSE 1935
-EXPOSE 1936
+# Ports below are the plaintext listeners the load balancer forwards to. The
+# TLS-fronted ports (RTMPS 1936, RTSPS 8555) terminate at the load balancer and
+# are never bound by the container.
 
-# RTSP / RTSPS
+# RTMP
+EXPOSE 1935
+
+# RTSP
 EXPOSE 8554
-EXPOSE 8555
 
 # SRT
 EXPOSE 8890/udp

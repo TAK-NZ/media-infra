@@ -20,6 +20,8 @@ export interface InfrastructureConfig {
   securityGroups: {
     /** Applied to the EC2 container instance; with host networking this fronts the container */
     instance: ec2.SecurityGroup;
+    /** Applied to the Network Load Balancer */
+    nlb: ec2.SecurityGroup;
     efs: ec2.SecurityGroup;
   };
 }

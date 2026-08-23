@@ -26,59 +26,54 @@ apiEncryption: no
 apiAllowOrigins: ['*']
 apiTrustedProxies: []
 
-# TLS is terminated by MediaMTX itself. There is no load balancer in front of
-# it, so /server.crt and /server.key are written by the entrypoint from the
-# exportable ACM certificate before MediaMTX starts.
+#
+# Every listener below is plaintext. TLS for client-facing traffic is terminated
+# by the Network Load Balancer using the shared ACM certificate, which forwards
+# decrypted traffic to these ports inside the VPC. The container holds no
+# certificate material.
+#
 playback: yes
 playbackAddress: :9996
-playbackEncryption: yes
-playbackServerKey: /server.key
-playbackServerCert: /server.crt
+playbackEncryption: no
 
-# "optional" serves plaintext on rtspAddress and TLS on rtspsAddress. Whether
-# the plaintext port is reachable is controlled by the security group
-# (enableInsecurePorts), not here.
 rtsp: yes
 rtspTransports: [tcp]
-rtspEncryption: "optional"
+rtspEncryption: "no"
 rtspAddress: :8554
-rtspsAddress: :8555
 rtspAuthMethods: [basic]
-rtspServerKey: /server.key
-rtspServerCert: /server.crt
 
 rtmp: yes
-rtmpEncryption: "optional"
+rtmpEncryption: "no"
 rtmpAddress: :1935
-rtmpsAddress: :1936
-rtmpServerKey: /server.key
-rtmpServerCert: /server.crt
 
-# HLS is bound to loopback: the only public HLS entry point is the Node proxy on
+# HLS is bound to loopback: the only entry point for HLS is the Node proxy on
 # :9997, which adds lease authorisation and rewrites manifests to signed URLs.
-# Exposing this listener directly would bypass that. Kept plaintext so the proxy
-# can fetch it over loopback without certificate hostname mismatches.
+# Exposing this listener would bypass that.
 hls: yes
 hlsAddress: 127.0.0.1:8888
 hlsEncryption: no
 
-# WebRTC works here because the container uses host network mode on EC2, giving
-# ICE the direct UDP path it needs. webrtcEncryption covers the handshake only;
-# the media itself is always DTLS-encrypted.
+#
+# WebRTC signalling (8889) arrives via the NLB, so it is plaintext here.
+#
+# ICE media on 8189 does NOT pass through the load balancer — it needs the direct
+# UDP path that host network mode on EC2 provides, which is the reason this
+# service does not run on Fargate. WebRTC media is always DTLS-encrypted using
+# keys exchanged in the SDP, independently of any TLS certificate.
+#
 webrtc: yes
 webrtcAddress: :8889
-webrtcEncryption: yes
-webrtcServerKey: /server.key
-webrtcServerCert: /server.crt
+webrtcEncryption: no
 webrtcAllowOrigins: ['*']
 webrtcLocalUDPAddress: :8189
 webrtcLocalTCPAddress: :8189
 # Interface IPs are the instance's private addresses, which external clients
-# cannot reach. The entrypoint instead advertises the public FQDN, which
-# resolves to the Elastic IP, via MTX_WEBRTCADDITIONALHOSTS.
+# cannot reach. The task definition sets MTX_WEBRTCADDITIONALHOSTS to the Elastic
+# IP so ICE candidates reference a routable address.
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: []
 
+# SRT carries its own encryption, so it passes through the NLB unmodified.
 srt: yes
 srtAddress: :8890
 
