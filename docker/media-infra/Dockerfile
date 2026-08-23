@@ -10,7 +10,7 @@ WORKDIR /app
 COPY docker-container/package.json docker-container/package-lock.json docker-container/tsconfig.json ./
 RUN npm ci
 
-COPY docker-container/index.ts ./
+COPY docker-container/index.ts docker-container/export-certificate.ts ./
 COPY docker-container/lib/ ./lib/
 COPY docker-container/routes/ ./routes/
 
@@ -34,8 +34,13 @@ RUN git clone --depth 1 --branch "${MEDIAMTX_BRANCH}" "${MEDIAMTX_REPO}" .
 RUN set -eux; \
 	echo "v0.0.0-custom" > internal/core/VERSION; \
 	go generate ./...; \
-	targetos="${TARGETOS:-$(go env GOOS)}"; \
-	targetarch="${TARGETARCH:-$(go env GOARCH)}"; \
+	# Capture the builder's own platform before GOOS/GOARCH are overridden for
+	# cross-compilation, so the smoke test below can tell whether the resulting
+	# binary is actually executable here.
+	hostos="$(go env GOOS)"; \
+	hostarch="$(go env GOARCH)"; \
+	targetos="${TARGETOS:-$hostos}"; \
+	targetarch="${TARGETARCH:-$hostarch}"; \
 	targetvariant="${TARGETVARIANT:-}"; \
 	export CGO_ENABLED=0 GOOS="${targetos}" GOARCH="${targetarch}"; \
 	goarm="${targetvariant#v}"; \
@@ -47,15 +52,20 @@ RUN set -eux; \
 		linux/arm64) file /mediamtx | grep -Eq 'ELF 64-bit.*(aarch64|ARM)' ;; \
 		linux/arm) file /mediamtx | grep -q 'ELF 32-bit.*ARM' ;; \
 	esac; \
-	if [ "${targetos}" = "$(go env GOOS)" ] && [ "${targetarch}" = "$(go env GOARCH)" ]; then /mediamtx --version; fi
+	if [ "${targetos}" = "${hostos}" ] && [ "${targetarch}" = "${hostarch}" ]; then \
+		/mediamtx --version; \
+	else \
+		echo "cross-compiled ${targetos}/${targetarch} on ${hostos}/${hostarch}; skipping version check"; \
+	fi
 
 # Final Stage
 FROM ${MEDIAMTX_BASE_IMAGE}
 
-# aws-cli and jq export the ACM certificate at startup; openssl decrypts the
-# exported private key. The container terminates TLS itself — there is no load
-# balancer in front of it.
-RUN apk add --no-cache aws-cli jq openssl
+# This stage deliberately contains no RUN steps. Its commands would execute as
+# TARGETARCH, which cannot run when cross-building for ARM64 from an x86-64 host
+# unless QEMU binfmt handlers are registered. Certificate export is handled by
+# dist/export-certificate.js using the AWS SDK and node:crypto instead of
+# aws-cli, jq and openssl, so nothing needs installing here.
 
 # Replace the pre-built MediaMTX binary with our source-built one
 COPY --from=mediamtx-builder /mediamtx /mediamtx

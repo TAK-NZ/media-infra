@@ -24,6 +24,19 @@ function synth(overrides: Record<string, unknown> = {}, environment: 'prod' | 'd
   return Template.fromStack(stack);
 }
 
+/**
+ * Flatten the launch template's user data into a string. CloudFormation
+ * intrinsics inside it are replaced with a placeholder so the surrounding shell
+ * script can be asserted on.
+ */
+function renderedUserData(template: Template): string {
+  const launchTemplates = template.findResources('AWS::EC2::LaunchTemplate');
+  const userData = Object.values(launchTemplates)[0].Properties.LaunchTemplateData.UserData;
+  const parts = userData['Fn::Base64']['Fn::Join'][1] as unknown[];
+
+  return parts.map((part) => (typeof part === 'string' ? part : '<intrinsic>')).join('');
+}
+
 describe('MediaInfraStack synthesis', () => {
   describe('compute architecture', () => {
     it('runs the task on EC2 with host network mode', () => {
@@ -75,6 +88,32 @@ describe('MediaInfraStack synthesis', () => {
           MetadataOptions: Match.objectLike({ HttpTokens: 'required' }),
         }),
       });
+    });
+
+    it('opts the ECS agent into task IAM roles for host network mode', () => {
+      const template = synth();
+      const userData = renderedUserData(template);
+
+      // Off by default for host networking. Without it the container receives no
+      // task credentials, breaking the ACM certificate export and EFS IAM auth.
+      expect(userData).toContain('ECS_ENABLE_TASK_IAM_ROLE_NETWORK_HOST=true');
+    });
+
+    it('raises the host UDP socket buffer defaults', () => {
+      const template = synth();
+      const userData = renderedUserData(template);
+
+      // MediaMTX gets large UDP buffers from the OS default rather than calling
+      // setsockopt, which fails hard when the kernel limit is lower.
+      expect(userData).toContain('net.core.rmem_default');
+    });
+
+    it('defers the Elastic IP association until the media API is serving', () => {
+      const template = synth();
+      const userData = renderedUserData(template);
+
+      expect(userData).toContain('media-eip-association.service');
+      expect(userData).toContain('ec2 associate-address');
     });
   });
 

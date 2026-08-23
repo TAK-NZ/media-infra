@@ -14,6 +14,7 @@
     "node": ">= 22"
   },
   "dependencies": {
+    "@aws-sdk/client-acm": "^3.1116.0",
     "@openaddresses/batch-error": "^2.13.1",
     "@openaddresses/batch-schema": "^10.27.0",
     "@sinclair/typebox": "^0.34.52",

@@ -45,50 +45,14 @@ sed -i "s|^authHTTPAddress: .*|authHTTPAddress: ${AUTH_ADDRESS}|" /mediamtx.yml
 sed -i "s|^logLevel: .*|logLevel: ${LOGLEVEL}|" /mediamtx.yml
 
 #
-# Export the TLS certificate from ACM.
+# Write TLS material to disk before anything that serves it starts.
 #
 # There is no load balancer terminating TLS, so MediaMTX and the Node API server
-# serve it directly. Every public listener (HLS, playback, WebRTC, RTMPS, RTSPS,
-# API) is configured for TLS and will not start without these files, so a failure
-# here is fatal by design — degrading to plaintext on public ports would be worse
-# than not starting.
+# serve it directly. Every internet-facing listener is configured for TLS and
+# will not bind without these files, so this step is fatal on failure — it runs
+# synchronously ahead of both servers rather than racing them.
 #
-if [ -z "${ACM_CERTIFICATE_ARN:-}" ]; then
-  echo "FATAL: ACM_CERTIFICATE_ARN is not set; cannot obtain TLS material" >&2
-  exit 1
-fi
-
-passphrase_file=/tmp/acm-passphrase
-export_file=/tmp/acm-certificate.json
-encrypted_key_file=/tmp/server.encrypted.key
-
-cleanup_tls_temp() {
-  rm -f "$passphrase_file" "$export_file" "$encrypted_key_file"
-}
-trap cleanup_tls_temp EXIT
-
-openssl rand -base64 48 | tr -d '\n' > "$passphrase_file"
-
-if ! aws acm export-certificate \
-      --certificate-arn "$ACM_CERTIFICATE_ARN" \
-      --passphrase "fileb://${passphrase_file}" \
-      --output json > "$export_file"; then
-  echo "FATAL: acm export-certificate failed for $ACM_CERTIFICATE_ARN" >&2
-  echo "The certificate must have been issued with export enabled." >&2
-  exit 1
-fi
-
-jq -r '(.Certificate // "") + "\n" + (.CertificateChain // "")' "$export_file" > /server.crt
-jq -r '.PrivateKey' "$export_file" > "$encrypted_key_file"
-openssl pkcs8 -in "$encrypted_key_file" -out /server.key -passin "file:${passphrase_file}"
-
-chmod 600 /server.key
-chmod 644 /server.crt
-
-cleanup_tls_temp
-trap - EXIT
-
-echo "ok - TLS certificate loaded from ACM"
+node /dist/export-certificate.js
 
 node /dist/index.js &
 

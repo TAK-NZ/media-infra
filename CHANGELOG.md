@@ -54,6 +54,7 @@ themselves.
 
 - :tada: Create an exportable ACM certificate (`allowExport`) scoped to the media subdomain, validated via the imported hosted zone
 - :rocket: Terminate TLS in-container for RTMPS (1936), RTSPS (8555), playback (9996), WebRTC (8889) and the API/HLS proxy (9997)
+- :rocket: Export the certificate with the AWS SDK and `node:crypto` instead of `aws-cli`, `jq` and `openssl`. Installing those needed a `RUN` step in the final image stage, which cannot execute when cross-building for ARM64 from an x86-64 host without QEMU. Node is already in the image, and dropping the aws-cli Python runtime takes the image from roughly 700 MB to 411 MB
 - :rocket: Scope the task role's `acm:ExportCertificate` permission to this stack's certificate only
 - :rocket: Treat a failed certificate export as fatal rather than degrading to plaintext on internet-facing ports
 - :rocket: Stop importing the shared BaseInfra certificate — export cannot be enabled on an existing certificate, and enabling it there would expose that key material to every consumer
@@ -66,6 +67,8 @@ themselves.
 
 #### Reliability and correctness
 
+- :bug: Enable `ECS_ENABLE_TASK_IAM_ROLE_NETWORK_HOST` on the container instance. Task IAM roles are off by default under `host` network mode, so without this the container receives no task credentials and both the certificate export and EFS IAM authorisation fail
+- :bug: Fix the MediaMTX build's architecture smoke test, which read `go env GOARCH` after that variable had been overridden for cross-compilation. The check always believed the binary was natively runnable and tried to execute an ARM64 binary on the build host
 - :bug: Fix EFS being destroyed on stack deletion in production — the removal policy was hardcoded and now follows `general.removalPolicy`
 - :bug: Fix `npx cdk` resolving to the CDK app instead of the CDK CLI; `package.json` declared a `bin` entry named `cdk` that shadowed the real CLI once `bin/cdk.js` had been compiled
 - :bug: Fix npm deploy/synth/diff scripts passing `--context environment=` when the app reads `envType=`

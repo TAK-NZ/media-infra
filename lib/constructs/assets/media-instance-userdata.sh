@@ -16,6 +16,12 @@ cat <<EOF > /etc/ecs/ecs.config
 ECS_CLUSTER=__CLUSTER_NAME__
 ECS_ENABLE_CONTAINER_METADATA=true
 ECS_ENABLE_SPOT_INSTANCE_DRAINING=true
+# Task IAM roles are off by default for host network mode and must be opted
+# into. Without this the container gets no task credentials, so the ACM
+# certificate export and EFS IAM authorisation both fail.
+# See https://repost.aws/knowledge-center/ecs-iam-task-roles-config-errors
+ECS_ENABLE_TASK_IAM_ROLE=true
+ECS_ENABLE_TASK_IAM_ROLE_NETWORK_HOST=true
 EOF
 
 systemctl enable --now docker
