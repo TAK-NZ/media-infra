@@ -12,6 +12,33 @@
 
 ### Pending Release
 
+#### Fix HLS playlist caching
+
+Live HLS playlists were served with no `Cache-Control` while Express stamped a
+weak `ETag` onto every body. Nothing told the client the playlist was volatile,
+and the validator actively invited revalidation. Tolerant players (hls.js, and so
+CloudTAK's own player) ride through this by polling again when the media sequence
+has not advanced, but native players stall at the live edge after 10-15 seconds
+and then need several reloads to recover.
+
+- :bug: Send `Cache-Control: no-store, no-cache, must-revalidate` on HLS manifests, and suppress the `ETag` by using `res.end` rather than `res.send`
+- :bug: Stop forwarding `if-none-match` / `if-modified-since` / `if-range` upstream when fetching a playlist we rewrite — upstream's validators do not describe our rewritten body, and a 304 from upstream surfaced to the client as a 500
+- :bug: Reduce the signed segment URL TTL from 10 minutes to 120 seconds. A typical live window retains only ~90s of segments, so a paused client resumed with a still-valid token pointing at segments the origin had already deleted, and got an opaque upstream 404 instead of a clean expiry
+- :bug: Tie the resource cache TTL to the signed URL TTL (plus a 60s margin) so the token is always what expires first, producing a 403 rather than a misleading 404
+
+#### Add stream test harness
+
+- :tada: Add `test-streams/` — generates a DJI-like drone feed, publishes it on a loop, and verifies that all five protocols actually deliver media
+- :white_check_mark: `verify.sh` decodes frames on RTSP, RTMP, SRT and HLS, walks the full HLS master → media → segment chain, asserts playlists are uncacheable, and checks WebRTC ICE advertises the Elastic IP. Exits non-zero on failure
+- :rocket: `fetch.sh` normalises sources to a shared profile (H.264 Main, fixed 2s GOP, no B-frames, `-nal-hrd cbr`, AAC-LC 48 kHz) approximating DJI's HD / SD / Smooth uplink tiers
+- :rocket: `publish.sh` chains several clips through the concat demuxer with `-c copy` for a continuous looping feed
+- :pencil2: Document why an `.m3u8` source cannot exercise RTSP/RTMP/SRT/WebRTC: `syncPaths()` skips MediaMTX path creation for HTTP sources, so those streams are served by the Node proxy and no MediaMTX path exists
+
+> [!NOTE]
+> No test media is committed. The drone clips are royalty-free stock from
+> dronestock.com and are fetched on demand into the gitignored
+> `test-streams/media/`.
+
 ### v10.0.0 - 2026-08-23
 
 > [!WARNING]

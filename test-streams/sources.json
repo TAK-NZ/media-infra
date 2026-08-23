@@ -1,0 +1,197 @@
+{
+  "$comment": [
+    "Catalogue of test video sources for the media-infra stream harness.",
+    "",
+    "No media is committed to this repository. Every source is fetched on demand",
+    "into test-streams/media/ (gitignored) and normalised into a DJI-like H.264",
+    "asset by fetch.sh.",
+    "",
+    "The drone-* sources are royalty-free stock clips from https://dronestock.com/",
+    "delivered over Mux. Royalty-free covers use, not redistribution of the raw",
+    "asset, so 'redistributable' is false for them: fetch locally, never commit or",
+    "bake into an image.",
+    "",
+    "Why real drone footage matters here: DJI aircraft push H.264 over RTMP with a",
+    "fixed GOP and no B-frames. Aerial motion (continuous translation across a",
+    "detailed ground plane) produces very different rate-control behaviour from",
+    "synthetic animation, so these clips exercise the encoder and the transport",
+    "far more like production traffic than a cartoon does."
+  ],
+
+  "profiles": {
+    "$comment": [
+      "Encoder profiles approximating DJI livestream quality tiers. All profiles",
+      "share GOP length, audio codec, sample rate and channel layout so that any",
+      "two assets built at the same profile stay concat-compatible, which is what",
+      "lets publish.sh chain a playlist with -c copy."
+    ],
+    "dji-hd": {
+      "description": "DJI 'HD' tier. Closest match to Pilot 2 / Dock default livestream.",
+      "width": 1920, "height": 1080, "fps": 30,
+      "video_bitrate": "6000k", "bufsize": "12000k",
+      "h264_profile": "main", "h264_level": "4.1"
+    },
+    "dji-sd": {
+      "description": "DJI 'SD' tier. Typical of a constrained 4G uplink.",
+      "width": 1280, "height": 720, "fps": 30,
+      "video_bitrate": "3000k", "bufsize": "6000k",
+      "h264_profile": "main", "h264_level": "3.1"
+    },
+    "dji-smooth": {
+      "description": "DJI 'Smooth' tier. Worst-case uplink, useful for stress tests.",
+      "width": 854, "height": 480, "fps": 30,
+      "video_bitrate": "1000k", "bufsize": "2000k",
+      "h264_profile": "baseline", "h264_level": "3.0"
+    }
+  },
+
+  "sources": {
+    "$comment": "Keys are the identifiers passed to fetch.sh and publish.sh.",
+
+    "drone-night-city": {
+      "description": "Aerial night flight over a city. Default source: low-light encoder stress.",
+      "url": "https://stream.mux.com/NSmdx2MS201d5JyD1cUmAbZ0092R6o01fX5E6dNh1oagKw.m3u8",
+      "licence": "Royalty-free stock clip from https://dronestock.com/ (delivered via Mux). Free to use; redistribution of the raw asset is not granted.",
+      "redistributable": false,
+      "default": true,
+      "hls": true,
+      "verified": {
+        "container": "hls",
+        "codec": "h264",
+        "h264_profile": "High",
+        "pix_fmt": "yuv420p",
+        "top_resolution": "1920x1080",
+        "top_fps": "30000/1001",
+        "duration_s": 30.5,
+        "top_rendition_bytes": 16977757,
+        "video_streams": 4,
+        "audio_streams": 0,
+        "renditions": [
+          { "resolution": "1920x1080", "bandwidth_bps": 3850000, "codec_tag": "avc1.64002a" },
+          { "resolution": "1280x720",  "bandwidth_bps": 1936000, "codec_tag": "avc1.640020" },
+          { "resolution": "854x480",   "bandwidth_bps": 885500,  "codec_tag": "avc1.64001f" },
+          { "resolution": "480x270",   "bandwidth_bps": 440000,  "codec_tag": "avc1.64001e" }
+        ]
+      },
+      "notes": [
+        "Night urban scene: many small point lights over large dark areas, which is one of the harder cases for a rate-limited H.264 encoder.",
+        "29.97fps rather than 30, so normalising duplicates roughly one frame per second. Irrelevant for transport testing.",
+        "~17 MiB fetch for the top rendition, a couple of seconds on a decent link."
+      ]
+    },
+
+    "drone-winter-town": {
+      "description": "Daylight aerial over a snowy mill town. High spatial detail at 59.94fps.",
+      "url": "https://stream.mux.com/7k5gKVR3HNLhtDMDVvXVreKFveyTloA7RMnzUK02I9cE.m3u8",
+      "licence": "Royalty-free stock clip from https://dronestock.com/ (delivered via Mux). Free to use; redistribution of the raw asset is not granted.",
+      "redistributable": false,
+      "hls": true,
+      "verified": {
+        "container": "hls",
+        "codec": "h264",
+        "h264_profile": "High",
+        "pix_fmt": "yuv420p",
+        "top_resolution": "1920x1080",
+        "top_fps": "60000/1001",
+        "duration_s": 25.8,
+        "top_rendition_bytes": 14072657,
+        "video_streams": 4,
+        "audio_streams": 0,
+        "renditions": [
+          { "resolution": "1920x1080", "bandwidth_bps": 3850000, "codec_tag": "avc1.64002a" },
+          { "resolution": "1280x720",  "bandwidth_bps": 1936000, "codec_tag": "avc1.640020" },
+          { "resolution": "854x480",   "bandwidth_bps": 885500,  "codec_tag": "avc1.64001f" },
+          { "resolution": "480x270",   "bandwidth_bps": 440000,  "codec_tag": "avc1.64001e" }
+        ]
+      },
+      "notes": [
+        "Complements drone-night-city: overcast daylight with very fine texture (snow, bare trees, parked cars) instead of low-light noise.",
+        "59.94fps source. Normalising to 30fps drops every second frame, which is exactly what a drone does when its uplink tier caps frame rate.",
+        "~14 MiB fetch for the top rendition."
+      ]
+    },
+
+    "drone-city-rooftops": {
+      "description": "Sunny daylight aerial over a dense European city. Cinemascope crop at 23.976fps.",
+      "url": "https://stream.mux.com/HeylxgvMQPQFLl01914aY02GWzr7NWW019PJnFFcQDe2bU.m3u8",
+      "licence": "Royalty-free stock clip from https://dronestock.com/ (delivered via Mux). Free to use; redistribution of the raw asset is not granted.",
+      "redistributable": false,
+      "hls": true,
+      "verified": {
+        "container": "hls",
+        "codec": "h264",
+        "h264_profile": "High",
+        "pix_fmt": "yuv420p",
+        "top_resolution": "1920x1012",
+        "top_fps": "24000/1001",
+        "duration_s": 20.5,
+        "top_rendition_bytes": 10881356,
+        "video_streams": 4,
+        "audio_streams": 0,
+        "renditions": [
+          { "resolution": "1920x1012", "bandwidth_bps": 3666300 },
+          { "resolution": "1280x674",  "bandwidth_bps": 1842500 },
+          { "resolution": "854x450",   "bandwidth_bps": 843700 },
+          { "resolution": "480x254",   "bandwidth_bps": 420200 }
+        ]
+      },
+      "notes": [
+        "Terracotta rooftops, rail cuttings and tree canopy in bright sun: high-contrast, high-detail daylight.",
+        "The only non-16:9 source here (1920x1012, roughly 1.9:1). fetch.sh letterboxes it to the profile's frame rather than stretching it, so expect black bars top and bottom.",
+        "23.976fps. Normalising to 30fps duplicates frames unevenly; fine for transport, not for judging motion cadence."
+      ]
+    },
+
+    "drone-arid-coast": {
+      "description": "Aerial over a remote arid coastline with breaking surf. Large flat areas, moving water.",
+      "url": "https://stream.mux.com/56OD02bjevfhPt02hrRBwWaKZY86fQkbU2RaIVS02VDD02I.m3u8",
+      "licence": "Royalty-free stock clip from https://dronestock.com/ (delivered via Mux). Free to use; redistribution of the raw asset is not granted.",
+      "redistributable": false,
+      "hls": true,
+      "verified": {
+        "container": "hls",
+        "codec": "h264",
+        "h264_profile": "High",
+        "pix_fmt": "yuv420p",
+        "top_resolution": "1920x1080",
+        "top_fps": "30000/1001",
+        "duration_s": 31.1,
+        "top_rendition_bytes": 16764080,
+        "video_streams": 4,
+        "audio_streams": 0,
+        "renditions": [
+          { "resolution": "1920x1080", "bandwidth_bps": 3850000 },
+          { "resolution": "1280x720",  "bandwidth_bps": 1936000 },
+          { "resolution": "854x480",   "bandwidth_bps": 885500 },
+          { "resolution": "480x270",   "bandwidth_bps": 440000 }
+        ]
+      },
+      "notes": [
+        "The opposite rate-control case to the city clips: most of the frame is low-detail sand, sky and open water, but the surf never stops moving.",
+        "Useful for spotting bitrate starvation artefacts, since a CBR encoder has spare bits here and should look clean.",
+        "Longest clip in the catalogue at 31s, so it is the best single source for a soak test."
+      ]
+    },
+
+    "bbb": {
+      "description": "Big Buck Bunny 1080p, 10s. Clearly licensed fallback for when redistribution matters.",
+      "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4",
+      "licence": "CC-BY 3.0, Blender Foundation",
+      "redistributable": true,
+      "verified": {
+        "container": "mp4",
+        "codec": "h264",
+        "h264_profile": "High",
+        "top_resolution": "1920x1080",
+        "top_fps": "30/1",
+        "duration_s": 10.0,
+        "size_bytes": 30704510,
+        "audio_streams": 0
+      },
+      "notes": [
+        "Synthetic animation, so its motion and rate-control behaviour are unlike real aerial footage. Use it when you need a source whose licence permits redistribution, or when offline.",
+        "The only source here that is safe to reference from CI."
+      ]
+    }
+  }
+}

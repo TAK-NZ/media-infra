@@ -1,10 +1,14 @@
 import Schema from '@openaddresses/batch-schema';
+// Aliased: the bare name `Response` in this file refers to the global fetch
+// Response (see shouldSendProxyBody), and importing Express's type unaliased
+// would shadow it.
+import type { Response as ExpressResponse } from 'express';
 import { Type } from '@sinclair/typebox';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream } from 'node:stream/web';
 import type { Config } from '../lib/config.js';
-import { verifySignedUrl } from '../lib/signing.js';
+import { verifySignedUrl, SIGNED_URL_TTL_SECONDS } from '../lib/signing.js';
 import NodeCache from 'node-cache';
 import { getCloudTAKPath } from '../lib/persist.js';
 import { Manifest } from '../lib/manifest.js';
@@ -25,7 +29,53 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
     'set-cookie'
 ]);
 
-const cache = new NodeCache({ stdTTL: 600 });
+/**
+ * Maps a resource hash back to its real upstream URL.
+ *
+ * Deliberately outlives the signed-URL TTL so the token is always what expires
+ * first. If a cache entry disappeared while its token was still valid, the client
+ * would get a misleading 404 "resource not found" rather than a 403 that
+ * correctly reports an expired URL.
+ */
+const RESOURCE_CACHE_TTL_SECONDS = SIGNED_URL_TTL_SECONDS + 60;
+
+const cache = new NodeCache({ stdTTL: RESOURCE_CACHE_TTL_SECONDS });
+
+/**
+ * Send an HLS playlist with caching disabled.
+ *
+ * A live media playlist must never be cached: its whole purpose is to change on
+ * every request. Previously these responses carried no Cache-Control at all
+ * while Express stamped a weak ETag onto the body, which is the worst pairing.
+ * Nothing told the client the playlist was volatile, and the validator actively
+ * invited revalidation. Tolerant players (hls.js) survive that by polling again
+ * when the media sequence has not advanced, but native players stall at the live
+ * edge after a few seconds and then need a hard reload.
+ *
+ * res.end is used rather than res.send because res.send is what attaches the
+ * ETag; there is no per-response way to suppress it.
+ */
+function sendManifest(res: ExpressResponse, body: string): void {
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.removeHeader('ETag');
+    res.setHeader('Content-Length', String(Buffer.byteLength(body)));
+    res.end(body);
+}
+
+/**
+ * Header-only variant of sendManifest for HEAD requests.
+ */
+function sendManifestHead(res: ExpressResponse): void {
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.removeHeader('ETag');
+    res.end();
+}
 
 export function getUpstreamRequestMethod(method: string): 'GET' | 'HEAD' {
     return method === 'HEAD' ? 'HEAD' : 'GET';
@@ -45,6 +95,31 @@ type AbortAwareEmitter = {
     once(event: 'aborted' | 'close', listener: () => void): void;
     off(event: 'aborted' | 'close', listener: () => void): void;
 };
+
+/**
+ * Conditional-request headers, which must not be forwarded when fetching a
+ * playlist we are about to rewrite.
+ *
+ * The body we return is not the body upstream validated: we rewrite every URI
+ * into a signed URL, so upstream's ETag and Last-Modified do not describe our
+ * response. Forwarding a client validator can also make upstream answer 304,
+ * which is not `ok`, so it would surface to the client as a 500 on what is
+ * really a successful cache revalidation.
+ *
+ * Segment requests are different and keep these headers, since byte-range and
+ * revalidation semantics do apply to bytes we pass through untouched.
+ */
+const CONDITIONAL_REQUEST_HEADERS = ['if-none-match', 'if-modified-since', 'if-range'];
+
+export function getManifestRequestHeaders(
+    headers: Record<string, string | string[] | undefined>
+): Record<string, string> {
+    const forwarded = getProxyRequestHeaders(headers);
+    for (const header of CONDITIONAL_REQUEST_HEADERS) {
+        delete forwarded[header];
+    }
+    return forwarded;
+}
 
 export function getProxyRequestHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
     const forwardedHeaders: Record<string, string> = {};
@@ -138,7 +213,7 @@ export default async function router(schema: Schema, config: Config) {
                     return res.status(404).json({ error: 'Resource not found or expired' });
                 }
 
-                const headers = getProxyRequestHeaders(req.headers);
+                const headers = getManifestRequestHeaders(req.headers);
                 const method = getUpstreamRequestMethod(req.method);
 
                 const resPlaylist = await fetch(realUrl, {
@@ -157,21 +232,19 @@ export default async function router(schema: Schema, config: Config) {
                 res.status(resPlaylist.status);
 
                 if (req.method === 'HEAD') {
-                    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                    res.end();
+                    sendManifestHead(res);
                     return;
                 }
 
                 const m3u8Content = await resPlaylist.text();
                 const newM3U8 = Manifest.rewrite(m3u8Content, realUrl, req.params.stream, config, cache);
 
-                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                res.send(newM3U8);
+                sendManifest(res, newM3U8);
             } else {
                 const cloudtakPath = await getCloudTAKPath(config, req.params.stream);
                 const url = getPlaylistUpstreamUrl(req.params.stream, cloudtakPath.proxy);
 
-                const headers = getProxyRequestHeaders(req.headers);
+                const headers = getManifestRequestHeaders(req.headers);
                 const method = getUpstreamRequestMethod(req.method);
 
                 const resPlaylist = await fetch(url, {
@@ -190,16 +263,14 @@ export default async function router(schema: Schema, config: Config) {
                 res.status(resPlaylist.status);
 
                 if (req.method === 'HEAD') {
-                    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                    res.end();
+                    sendManifestHead(res);
                     return;
                 }
 
                 const m3u8Content = await resPlaylist.text();
                 const newM3U8 = Manifest.rewrite(m3u8Content, url.href, req.params.stream, config, cache);
 
-                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-                res.send(newM3U8);
+                sendManifest(res, newM3U8);
             }
         } catch (err) {
             Err.respond(err, res);
