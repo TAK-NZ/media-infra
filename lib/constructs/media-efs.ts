@@ -16,10 +16,14 @@ export interface MediaEfsProps {
 /**
  * Persistent storage for MediaMTX runtime state and recordings.
  *
- * Mount targets sit in the public subnets because that is where the EC2
- * container instance runs — it needs a public IP for the Elastic IP association
- * and for WebRTC ICE candidates to be reachable. A mount target must exist in
- * the same subnet as the client that mounts it.
+ * Mount targets stay in the private subnets even though the container instance
+ * runs in a public one. EFS mount targets are per Availability Zone, not per
+ * subnet: one mount target per AZ serves every instance in that AZ regardless of
+ * which subnet it sits in.
+ * https://docs.aws.amazon.com/efs/latest/ug/accessing-fs.html
+ *
+ * Keeping them private also avoids putting the file system's network interfaces
+ * on a public subnet for no benefit.
  */
 export class MediaEfs extends Construct {
   public readonly fileSystem: efs.FileSystem;
@@ -37,7 +41,7 @@ export class MediaEfs extends Construct {
         ? cdk.RemovalPolicy.RETAIN
         : cdk.RemovalPolicy.DESTROY,
       vpcSubnets: {
-        subnetType: ec2.SubnetType.PUBLIC,
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
       },
       securityGroup: props.efsSecurityGroup,
     });

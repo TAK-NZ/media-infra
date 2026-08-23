@@ -52,7 +52,7 @@ export class MediaNlb extends Construct {
     playback: elbv2.NetworkTargetGroup;
     api: elbv2.NetworkTargetGroup;
     webrtc: elbv2.NetworkTargetGroup;
-    srt: elbv2.NetworkTargetGroup;
+    srts: elbv2.NetworkTargetGroup;
   };
 
   constructor(scope: Construct, id: string, props: MediaNlbProps) {
@@ -100,7 +100,7 @@ export class MediaNlb extends Construct {
       playback: targetGroup('PlaybackTargetGroup', MEDIAMTX_PORTS.PLAYBACK, elbv2.Protocol.TCP),
       api: targetGroup('ApiTargetGroup', MEDIAMTX_PORTS.API, elbv2.Protocol.TCP),
       webrtc: targetGroup('WebRtcTargetGroup', MEDIAMTX_PORTS.WEBRTC, elbv2.Protocol.TCP),
-      srt: targetGroup('SrtTargetGroup', MEDIAMTX_PORTS.SRTS, elbv2.Protocol.UDP),
+      srts: targetGroup('SrtsTargetGroup', MEDIAMTX_PORTS.SRTS, elbv2.Protocol.UDP),
     };
 
     // TLS-terminating listeners. Each decrypts and forwards to the plaintext
@@ -143,10 +143,14 @@ export class MediaNlb extends Construct {
     });
 
     // SRT provides its own encryption, so it passes through unmodified.
-    this.loadBalancer.addListener('SrtListener', {
+    //
+    // Construct ID must stay 'SrtsListener'. A load balancer permits only one
+    // listener per port, so renaming it would make CloudFormation attempt to
+    // create the replacement on 8890 before deleting the original, which fails.
+    this.loadBalancer.addListener('SrtsListener', {
       port: MEDIAMTX_PORTS.SRTS,
       protocol: elbv2.Protocol.UDP,
-      defaultTargetGroups: [this.targetGroups.srt],
+      defaultTargetGroups: [this.targetGroups.srts],
     });
 
     // Plaintext ingest listeners, opt-in only.

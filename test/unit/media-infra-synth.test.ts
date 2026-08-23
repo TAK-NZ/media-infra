@@ -375,6 +375,28 @@ describe('MediaInfraStack synthesis', () => {
       dev.hasResource('AWS::EFS::FileSystem', { DeletionPolicy: 'Delete' });
     });
 
+    it('keeps listener construct IDs stable so in-place updates are possible', () => {
+      const template = synth({ enableInsecurePorts: true });
+      const listeners = template.findResources('AWS::ElasticLoadBalancingV2::Listener');
+
+      // A load balancer permits one listener per port, so renaming a listener
+      // makes CloudFormation try to create the replacement before deleting the
+      // original and the update fails. These IDs match the deployed stack and
+      // must not drift.
+      const ids = Object.keys(listeners).join(' ');
+      for (const expected of [
+        'RtmpsListener',
+        'RtspsListener',
+        'PlaybackListener',
+        'ApiListener',
+        'SrtsListener',
+        'RtmpListener',
+        'RtspListener',
+      ]) {
+        expect(ids).toContain(expected);
+      }
+    });
+
     it('encrypts EFS and mounts it through an access point', () => {
       const template = synth();
 

@@ -73,7 +73,7 @@ certificate is used as-is and the container holds no certificate material.
 - :bug: Fix npm deploy/synth/diff scripts passing `--context environment=` when the app reads `envType=`
 - :rocket: Hold full capacity through deployments (`MinimumHealthyPercent: 100`) and enable the deployment circuit breaker with rollback; a restarting media server drops every in-flight stream
 - :rocket: Tune UDP socket buffers on the host so MediaMTX gets large buffers from the OS default, avoiding the `setsockopt` failure that previously killed the container
-- :rocket: Move the EFS mount to `/opt/mediamtx` and place mount targets in the public subnets to match the instance
+- :rocket: Move the EFS mount to `/opt/mediamtx`. Mount targets stay in the private subnets — they are per Availability Zone rather than per subnet, so one serves every instance in that AZ regardless of which subnet the instance sits in
 - :rocket: Build the final image stage with no `RUN` steps at all. Commands there execute as the target architecture, which cannot run when cross-building for ARM64 from an x86-64 host without QEMU binfmt handlers
 - :rocket: Propagate service tags to tasks and enable enhanced Container Insights in both environments
 - :rocket: Make MediaMTX log level configurable per environment and overridable from the CLI
