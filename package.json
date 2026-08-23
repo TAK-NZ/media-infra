@@ -1,11 +1,8 @@
 {
   "name": "@tak-nz/media-infra",
-  "version": "9.5.0",
+  "version": "10.0.0",
   "description": "Media infrastructure for TAK-NZ project using AWS CDK",
   "private": true,
-  "bin": {
-    "cdk": "bin/cdk.js"
-  },
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
@@ -15,14 +12,14 @@
     "cdk": "cdk",
     "clean": "rm -f bin/*.js bin/*.d.ts lib/*.js lib/*.d.ts lib/constructs/*.js lib/constructs/*.d.ts test/*.js test/*.d.ts; rm -rf cdk.out/*",
     "dev": "npm run build && npm run test",
-    "deploy:dev": "npm run build && cdk deploy --context environment=dev-test --no-warnings",
-    "deploy:prod": "npm run build && cdk deploy --context environment=prod --no-warnings",
-    "deploy:local:dev": "npm run build && cdk deploy --context environment=dev-test --context usePreBuiltImages=false --no-warnings",
-    "deploy:local:prod": "npm run build && cdk deploy --context environment=prod --context usePreBuiltImages=false --no-warnings",
-    "synth:dev": "npm run build && cdk synth --context environment=dev-test",
-    "synth:prod": "npm run build && cdk synth --context environment=prod",
-    "cdk:diff:dev": "npm run build && cdk diff --context environment=dev-test",
-    "cdk:diff:prod": "npm run build && cdk diff --context environment=prod",
+    "deploy:dev": "npm run build && cdk deploy --context envType=dev-test --no-warnings",
+    "deploy:prod": "npm run build && cdk deploy --context envType=prod --no-warnings",
+    "deploy:local:dev": "npm run build && cdk deploy --context envType=dev-test --context usePreBuiltImages=false --no-warnings",
+    "deploy:local:prod": "npm run build && cdk deploy --context envType=prod --context usePreBuiltImages=false --no-warnings",
+    "synth:dev": "npm run build && cdk synth --context envType=dev-test",
+    "synth:prod": "npm run build && cdk synth --context envType=prod",
+    "cdk:diff:dev": "npm run build && cdk diff --context envType=dev-test",
+    "cdk:diff:prod": "npm run build && cdk diff --context envType=prod",
     "cdk:bootstrap": "cdk bootstrap",
     "deploy": "cdk deploy",
     "destroy": "cdk destroy",
@@ -44,16 +41,16 @@
   "homepage": "https://github.com/TAK-NZ/media-infra#readme",
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.1.0",
-    "aws-cdk": "^2.1129.0",
-    "aws-cdk-lib": "^2.261.0",
-    "constructs": "^10.6.0",
+    "@types/node": "^26.2.0",
+    "aws-cdk": "^2.1138.0",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11",
+    "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
-    "typescript": "~6.0.0"
+    "typescript": "~6.0.3"
   },
   "dependencies": {
+    "aws-cdk-lib": "^2.266.0",
+    "constructs": "^10.8.1",
     "source-map-support": "^0.5.21"
   }
 }

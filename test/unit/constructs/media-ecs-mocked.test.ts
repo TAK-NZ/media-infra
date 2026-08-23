@@ -1,6 +1,6 @@
 jest.mock('aws-cdk-lib/aws-ecs', () => ({
   ...jest.requireActual('aws-cdk-lib/aws-ecs'),
-  FargateTaskDefinition: jest.fn().mockImplementation(() => ({
+  Ec2TaskDefinition: jest.fn().mockImplementation(() => ({
     addContainer: jest.fn().mockReturnValue({
       addPortMappings: jest.fn(),
       addMountPoints: jest.fn()
@@ -14,9 +14,8 @@ jest.mock('aws-cdk-lib/aws-ecs', () => ({
       addToPolicy: jest.fn()
     }
   })),
-  FargateService: jest.fn().mockImplementation(() => ({
-    serviceArn: 'arn:aws:ecs:us-west-2:123456789012:service/test',
-    loadBalancerTarget: jest.fn()
+  Ec2Service: jest.fn().mockImplementation(() => ({
+    serviceArn: 'arn:aws:ecs:us-west-2:123456789012:service/test'
   })),
   LogDriver: {
     awsLogs: jest.fn()
@@ -31,7 +30,8 @@ jest.mock('aws-cdk-lib/aws-logs', () => ({
 
 jest.mock('aws-cdk-lib/aws-iam', () => ({
   Role: jest.fn().mockImplementation(() => ({
-    addToPolicy: jest.fn()
+    addToPolicy: jest.fn(),
+    addManagedPolicy: jest.fn()
   })),
   ServicePrincipal: jest.fn(),
   PolicyStatement: jest.fn().mockImplementation(() => ({
@@ -48,7 +48,6 @@ import { MediaEcsService } from '../../../lib/constructs/media-ecs-service';
 import { App, Stack } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { mockDevConfig } from '../../__fixtures__/mock-configs';
@@ -59,15 +58,16 @@ describe('MediaEcsService Construct (Mocked)', () => {
   let vpc: ec2.IVpc;
   let ecsCluster: ecs.ICluster;
   let securityGroup: ec2.SecurityGroup;
-  let targetGroups: any;
   let signingSecret: secretsmanager.ISecret;
   let mediaSecret: secretsmanager.ISecret;
   let kmsKey: kms.IKey;
+  let certificate: any;
+  let capacityProvider: any;
 
   beforeEach(() => {
     app = new App();
     stack = new Stack(app, 'TestStack');
-    
+
     vpc = ec2.Vpc.fromVpcAttributes(stack, 'TestVpc', {
       vpcId: 'vpc-12345',
       availabilityZones: ['us-west-2a', 'us-west-2b'],
@@ -86,14 +86,6 @@ describe('MediaEcsService Construct (Mocked)', () => {
       description: 'Test security group'
     });
 
-    targetGroups = {
-      rtmp: { addTarget: jest.fn() } as any,
-      rtsp: { addTarget: jest.fn() } as any,
-      srts: { addTarget: jest.fn() } as any,
-      hls: { addTarget: jest.fn() } as any,
-      api: { addTarget: jest.fn() } as any
-    };
-
     signingSecret = {
       grantRead: jest.fn()
     } as any;
@@ -103,6 +95,12 @@ describe('MediaEcsService Construct (Mocked)', () => {
     kmsKey = {
       grantDecrypt: jest.fn()
     } as any;
+    certificate = {
+      certificateArn: 'arn:aws:acm:us-west-2:123456789012:certificate/test-cert'
+    };
+    capacityProvider = {
+      capacityProviderName: 'test-capacity-provider'
+    };
   });
 
   it('creates MediaEcsService construct successfully', () => {
@@ -115,14 +113,13 @@ describe('MediaEcsService Construct (Mocked)', () => {
           ecsCluster,
           kmsKey,
           securityGroups: {
-            mediaMtx: securityGroup,
-            nlb: securityGroup,
+            instance: securityGroup,
             efs: securityGroup
           }
         },
         network: {
           hostedZone: {} as any,
-          certificate: {} as any,
+          certificate,
           mediaHostname: 'media',
           hostedZoneName: 'test.com'
         },
@@ -137,8 +134,9 @@ describe('MediaEcsService Construct (Mocked)', () => {
             accessPointId: 'fsap-12345678'
           }
         },
-        targetGroups,
-        stackNameComponent: 'Dev'
+        stackNameComponent: 'Dev',
+        certificate,
+        capacityProvider
       });
     }).not.toThrow();
   });

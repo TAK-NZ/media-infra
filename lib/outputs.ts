@@ -7,19 +7,21 @@ import * as cdk from 'aws-cdk-lib';
 export interface OutputsConfig {
   stack: cdk.Stack;
   stackName: string;
-  nlbDnsName: string;
+  /** Elastic IP that DNS resolves to; the media server is reached directly on this address */
+  mediaIp: string;
   mediaUrl: string;
   ecsServiceArn: string;
+  certificateArn: string;
 }
 
 export function registerOutputs(config: OutputsConfig): void {
-  const { stack, stackName, nlbDnsName, mediaUrl, ecsServiceArn } = config;
+  const { stack, stackName, mediaIp, mediaUrl, ecsServiceArn, certificateArn } = config;
 
-  // NLB DNS Name
-  new cdk.CfnOutput(stack, 'NlbDnsNameOutput', {
-    value: nlbDnsName,
-    description: 'MediaMTX Network Load Balancer DNS name',
-    exportName: `${stackName}-NlbDnsName`,
+  // Static Elastic IP for the media EC2 instance
+  new cdk.CfnOutput(stack, 'MediaIpOutput', {
+    value: mediaIp,
+    description: 'Static Elastic IP of the MediaMTX server',
+    exportName: `${stackName}-MediaIp`,
   });
 
   // Media Service URL
@@ -34,5 +36,12 @@ export function registerOutputs(config: OutputsConfig): void {
     value: ecsServiceArn,
     description: 'MediaMTX ECS service ARN',
     exportName: `${stackName}-EcsServiceArn`,
+  });
+
+  // Exportable certificate used by the container to terminate TLS
+  new cdk.CfnOutput(stack, 'MediaCertificateArnOutput', {
+    value: certificateArn,
+    description: 'Exportable ACM certificate ARN used by the media service',
+    exportName: `${stackName}-MediaCertificateArn`,
   });
 }

@@ -9,8 +9,18 @@ export interface MediaEfsProps {
   kmsKey: kms.IKey;
   stackNameComponent: string;
   efsSecurityGroup: ec2.SecurityGroup;
+  /** Whether to retain the file system when the stack is deleted */
+  retainOnDelete: boolean;
 }
 
+/**
+ * Persistent storage for MediaMTX runtime state and recordings.
+ *
+ * Mount targets sit in the public subnets because that is where the EC2
+ * container instance runs — it needs a public IP for the Elastic IP association
+ * and for WebRTC ICE candidates to be reachable. A mount target must exist in
+ * the same subnet as the client that mounts it.
+ */
 export class MediaEfs extends Construct {
   public readonly fileSystem: efs.FileSystem;
   public readonly accessPoint: efs.AccessPoint;
@@ -18,20 +28,20 @@ export class MediaEfs extends Construct {
   constructor(scope: Construct, id: string, props: MediaEfsProps) {
     super(scope, id);
 
-    // Create EFS file system with mount targets in private subnets (where ECS containers run)
     this.fileSystem = new efs.FileSystem(this, 'MediaEfsFileSystem', {
       vpc: props.vpc,
       encrypted: true,
       kmsKey: props.kmsKey,
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: props.retainOnDelete
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
       vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        subnetType: ec2.SubnetType.PUBLIC,
       },
       securityGroup: props.efsSecurityGroup,
     });
 
-    // Create access point for MediaMTX configuration
     this.accessPoint = new efs.AccessPoint(this, 'MediaMtxAccessPoint', {
       fileSystem: this.fileSystem,
       path: '/mediamtx',

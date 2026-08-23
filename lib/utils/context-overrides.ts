@@ -14,11 +14,18 @@ export function applyContextOverrides(
     stackName: app.node.tryGetContext('stackName'),
     enableInsecurePorts: parseContextBoolean(app.node.tryGetContext('enableInsecurePorts')),
     usePreBuiltImages: parseContextBoolean(app.node.tryGetContext('usePreBuiltImages')),
+    logLevel: app.node.tryGetContext('logLevel'),
   };
 
   return {
     ...baseConfig,
     ...Object.fromEntries(Object.entries(topLevelOverrides).filter(([_, v]) => v !== undefined)),
+    ec2: {
+      ...baseConfig.ec2,
+      instanceType: app.node.tryGetContext('instanceType') ?? baseConfig.ec2?.instanceType,
+      minCapacity: parseContextNumber(app.node.tryGetContext('minCapacity')) ?? baseConfig.ec2?.minCapacity,
+      maxCapacity: parseContextNumber(app.node.tryGetContext('maxCapacity')) ?? baseConfig.ec2?.maxCapacity,
+    },
     ecs: {
       ...baseConfig.ecs,
       taskCpu: parseContextNumber(app.node.tryGetContext('taskCpu')) ?? baseConfig.ecs.taskCpu,

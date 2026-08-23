@@ -45,7 +45,8 @@ describe('MediaEfs Construct (Mocked)', () => {
         vpc,
         kmsKey,
         stackNameComponent: 'Dev',
-        efsSecurityGroup
+        efsSecurityGroup,
+        retainOnDelete: false
       });
     }).not.toThrow();
   });

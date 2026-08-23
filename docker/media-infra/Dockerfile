@@ -52,29 +52,38 @@ RUN set -eux; \
 # Final Stage
 FROM ${MEDIAMTX_BASE_IMAGE}
 
+# aws-cli and jq export the ACM certificate at startup; openssl decrypts the
+# exported private key. The container terminates TLS itself — there is no load
+# balancer in front of it.
+RUN apk add --no-cache aws-cli jq openssl
+
 # Replace the pre-built MediaMTX binary with our source-built one
 COPY --from=mediamtx-builder /mediamtx /mediamtx
 
 # Copy a target-platform Node runtime without executing package-manager steps
 COPY --from=node-runtime /usr/local/ /usr/local/
 
+# RTMP / RTMPS
+EXPOSE 1935
+EXPOSE 1936
+
+# RTSP / RTSPS
+EXPOSE 8554
+EXPOSE 8555
+
 # SRT
-EXPOSE 8890
-
-# API
-EXPOSE 9997
-
-# Metrics
-EXPOSE 9998
-
-# PPROF
-EXPOSE 9999
+EXPOSE 8890/udp
 
 # Playback
 EXPOSE 9996
 
-# HLS
-EXPOSE 8888
+# CloudTAK media API and HLS proxy
+EXPOSE 9997
+
+# WebRTC signalling and ICE (UDP with TCP fallback)
+EXPOSE 8889
+EXPOSE 8189
+EXPOSE 8189/udp
 
 COPY docker-container/mediamtx.yml /mediamtx.yml
 COPY docker-container/start /start

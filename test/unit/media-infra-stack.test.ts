@@ -2,25 +2,25 @@ import { App } from 'aws-cdk-lib';
 import { MediaInfraStack } from '../../lib/media-infra-stack';
 import { mockDevConfig, mockProdConfig } from '../__fixtures__/mock-configs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import { MediaSecurityGroups } from '../../lib/constructs/media-security-groups';
-import { MediaNlb } from '../../lib/constructs/media-nlb';
+import { MediaCertificate } from '../../lib/constructs/media-certificate';
+import { MediaEndpoint } from '../../lib/constructs/media-endpoint';
+import { MediaEc2Compute } from '../../lib/constructs/media-ec2-compute';
 import { MediaEcsService } from '../../lib/constructs/media-ecs-service';
 import { MediaEfs } from '../../lib/constructs/media-efs';
 
 // Mock all CDK services
 jest.mock('aws-cdk-lib/aws-ec2');
-jest.mock('aws-cdk-lib/aws-ecs');
-jest.mock('aws-cdk-lib/aws-certificatemanager');
 jest.mock('aws-cdk-lib/aws-route53');
 jest.mock('aws-cdk-lib/aws-secretsmanager');
 jest.mock('aws-cdk-lib/aws-kms');
 jest.mock('../../lib/constructs/media-security-groups');
-jest.mock('../../lib/constructs/media-nlb');
+jest.mock('../../lib/constructs/media-certificate');
+jest.mock('../../lib/constructs/media-endpoint');
+jest.mock('../../lib/constructs/media-ec2-compute');
 jest.mock('../../lib/constructs/media-ecs-service');
 jest.mock('../../lib/constructs/media-efs');
 jest.mock('../../lib/outputs');
@@ -30,15 +30,6 @@ const mockVpc = {
   availabilityZones: ['us-west-2a', 'us-west-2b'],
   publicSubnets: [{ subnetId: 'subnet-pub1' }, { subnetId: 'subnet-pub2' }],
   privateSubnets: [{ subnetId: 'subnet-priv1' }, { subnetId: 'subnet-priv2' }]
-};
-
-const mockEcsCluster = {
-  clusterArn: 'arn:aws:ecs:us-west-2:123456789012:cluster/test-cluster',
-  clusterName: 'test-cluster'
-};
-
-const mockCertificate = {
-  certificateArn: 'arn:aws:acm:us-west-2:123456789012:certificate/test-cert'
 };
 
 const mockHostedZone = {
@@ -55,22 +46,36 @@ const mockSecret = {
 };
 
 const mockSecurityGroups = {
-  nlb: { securityGroupId: 'sg-nlb' },
-  mediaMtx: { securityGroupId: 'sg-mediamtx' },
+  instance: { securityGroupId: 'sg-instance' },
   efs: { securityGroupId: 'sg-efs' }
 };
 
-const mockNlb = {
-  loadBalancer: { loadBalancerDnsName: 'nlb-dns-name' },
-  targetGroups: { rtmp: {}, rtsp: {}, api: {} }
+const mockCertificate = {
+  certificate: {
+    certificateArn: 'arn:aws:acm:us-west-2:123456789012:certificate/test-cert'
+  }
+};
+
+const mockEndpoint = {
+  elasticIp: { ref: '203.0.113.10', attrAllocationId: 'eipalloc-12345' },
+  aRecord: {}
+};
+
+const mockCompute = {
+  cluster: { clusterName: 'TAK-Dev-Media' },
+  capacityProvider: { capacityProviderName: 'test-capacity-provider' },
+  autoScalingGroup: {}
 };
 
 const mockMediaService = {
-  service: { serviceArn: 'arn:aws:ecs:service/test-service' }
+  service: {
+    serviceArn: 'arn:aws:ecs:service/test-service',
+    node: { addDependency: jest.fn() }
+  }
 };
 
 const mockEfs = {
-  fileSystem: { fileSystemId: 'fs-12345' },
+  fileSystem: { fileSystemId: 'fs-12345', mountTargetsAvailable: {} },
   accessPoint: { accessPointId: 'fsap-12345' }
 };
 
@@ -83,15 +88,15 @@ describe('MediaInfraStack', () => {
 
     // Mock CDK service constructors
     (ec2.Vpc.fromVpcAttributes as jest.Mock).mockReturnValue(mockVpc);
-    (ecs.Cluster.fromClusterAttributes as jest.Mock).mockReturnValue(mockEcsCluster);
-    (acm.Certificate.fromCertificateArn as jest.Mock).mockReturnValue(mockCertificate);
     (route53.HostedZone.fromHostedZoneAttributes as jest.Mock).mockReturnValue(mockHostedZone);
     (kms.Key.fromKeyArn as jest.Mock).mockReturnValue(mockKmsKey);
     (secretsmanager.Secret.fromSecretCompleteArn as jest.Mock).mockReturnValue(mockSecret);
 
     // Mock construct constructors
     (MediaSecurityGroups as jest.MockedClass<typeof MediaSecurityGroups>).mockImplementation(() => mockSecurityGroups as any);
-    (MediaNlb as jest.MockedClass<typeof MediaNlb>).mockImplementation(() => mockNlb as any);
+    (MediaCertificate as jest.MockedClass<typeof MediaCertificate>).mockImplementation(() => mockCertificate as any);
+    (MediaEndpoint as jest.MockedClass<typeof MediaEndpoint>).mockImplementation(() => mockEndpoint as any);
+    (MediaEc2Compute as jest.MockedClass<typeof MediaEc2Compute>).mockImplementation(() => mockCompute as any);
     (MediaEcsService as jest.MockedClass<typeof MediaEcsService>).mockImplementation(() => mockMediaService as any);
     (MediaEfs as jest.MockedClass<typeof MediaEfs>).mockImplementation(() => mockEfs as any);
   });
@@ -149,11 +154,26 @@ describe('MediaInfraStack', () => {
       });
 
       expect(ec2.Vpc.fromVpcAttributes).toHaveBeenCalled();
-      expect(ecs.Cluster.fromClusterAttributes).toHaveBeenCalled();
-      expect(acm.Certificate.fromCertificateArn).toHaveBeenCalled();
       expect(route53.HostedZone.fromHostedZoneAttributes).toHaveBeenCalled();
       expect(kms.Key.fromKeyArn).toHaveBeenCalled();
       expect(secretsmanager.Secret.fromSecretCompleteArn).toHaveBeenCalledTimes(2);
+    });
+
+    it('creates the ECS cluster in-stack rather than importing it', () => {
+      new MediaInfraStack(app, 'TestStack', {
+        environment: 'dev-test',
+        envConfig: mockDevConfig
+      });
+
+      // EC2 capacity providers are cluster-scoped, so the cluster is owned by
+      // this stack instead of being imported from BaseInfra.
+      expect(MediaEc2Compute).toHaveBeenCalledWith(
+        expect.anything(),
+        'MediaCompute',
+        expect.objectContaining({
+          stackNameComponent: 'Dev'
+        })
+      );
     });
 
     it('creates all required constructs', () => {
@@ -171,6 +191,14 @@ describe('MediaInfraStack', () => {
         })
       );
 
+      expect(MediaCertificate).toHaveBeenCalledWith(
+        expect.anything(),
+        'MediaCertificate',
+        expect.objectContaining({
+          stackNameComponent: 'Dev'
+        })
+      );
+
       expect(MediaEfs).toHaveBeenCalledWith(
         expect.anything(),
         'MediaEfs',
@@ -179,12 +207,11 @@ describe('MediaInfraStack', () => {
         })
       );
 
-      expect(MediaNlb).toHaveBeenCalledWith(
+      expect(MediaEndpoint).toHaveBeenCalledWith(
         expect.anything(),
-        'MediaNlb',
+        'MediaEndpoint',
         expect.objectContaining({
-          stackNameComponent: 'Dev',
-          enableInsecurePorts: false
+          stackNameComponent: 'Dev'
         })
       );
 
@@ -195,6 +222,40 @@ describe('MediaInfraStack', () => {
           environment: 'dev-test',
           envConfig: mockDevConfig,
           stackNameComponent: 'Dev'
+        })
+      );
+    });
+
+    it('passes the Elastic IP allocation to the compute layer', () => {
+      new MediaInfraStack(app, 'TestStack', {
+        environment: 'dev-test',
+        envConfig: mockDevConfig
+      });
+
+      // The instance user data associates the EIP to itself once healthy, so it
+      // needs the allocation created by MediaEndpoint.
+      expect(MediaEc2Compute).toHaveBeenCalledWith(
+        expect.anything(),
+        'MediaCompute',
+        expect.objectContaining({
+          elasticIp: mockEndpoint.elasticIp
+        })
+      );
+    });
+
+    it('passes the exportable certificate to the ECS service', () => {
+      new MediaInfraStack(app, 'TestStack', {
+        environment: 'dev-test',
+        envConfig: mockDevConfig
+      });
+
+      // The container terminates TLS itself, so it needs the certificate ARN to
+      // export at startup.
+      expect(MediaEcsService).toHaveBeenCalledWith(
+        expect.anything(),
+        'MediaEcsService',
+        expect.objectContaining({
+          certificate: mockCertificate.certificate
         })
       );
     });
@@ -217,13 +278,41 @@ describe('MediaInfraStack', () => {
           enableInsecurePorts: true
         })
       );
+    });
 
-      expect(MediaNlb).toHaveBeenCalledWith(
+    it('retains EFS in prod and destroys it in dev-test', () => {
+      new MediaInfraStack(app, 'TestProdStack', {
+        environment: 'prod',
+        envConfig: mockProdConfig
+      });
+
+      expect(MediaEfs).toHaveBeenCalledWith(
         expect.anything(),
-        'MediaNlb',
-        expect.objectContaining({
-          enableInsecurePorts: true
-        })
+        'MediaEfs',
+        expect.objectContaining({ retainOnDelete: true })
+      );
+
+      jest.clearAllMocks();
+      (ec2.Vpc.fromVpcAttributes as jest.Mock).mockReturnValue(mockVpc);
+      (route53.HostedZone.fromHostedZoneAttributes as jest.Mock).mockReturnValue(mockHostedZone);
+      (kms.Key.fromKeyArn as jest.Mock).mockReturnValue(mockKmsKey);
+      (secretsmanager.Secret.fromSecretCompleteArn as jest.Mock).mockReturnValue(mockSecret);
+      (MediaSecurityGroups as jest.MockedClass<typeof MediaSecurityGroups>).mockImplementation(() => mockSecurityGroups as any);
+      (MediaCertificate as jest.MockedClass<typeof MediaCertificate>).mockImplementation(() => mockCertificate as any);
+      (MediaEndpoint as jest.MockedClass<typeof MediaEndpoint>).mockImplementation(() => mockEndpoint as any);
+      (MediaEc2Compute as jest.MockedClass<typeof MediaEc2Compute>).mockImplementation(() => mockCompute as any);
+      (MediaEcsService as jest.MockedClass<typeof MediaEcsService>).mockImplementation(() => mockMediaService as any);
+      (MediaEfs as jest.MockedClass<typeof MediaEfs>).mockImplementation(() => mockEfs as any);
+
+      new MediaInfraStack(new App(), 'TestDevStack', {
+        environment: 'dev-test',
+        envConfig: mockDevConfig
+      });
+
+      expect(MediaEfs).toHaveBeenCalledWith(
+        expect.anything(),
+        'MediaEfs',
+        expect.objectContaining({ retainOnDelete: false })
       );
     });
 

@@ -32,6 +32,11 @@ describe('Library Exports', () => {
         stackName: 'test',
         enableInsecurePorts: false,
         usePreBuiltImages: false,
+        ec2: {
+          instanceType: 't4g.large',
+          minCapacity: 1,
+          maxCapacity: 2
+        },
         ecs: {
           taskCpu: 512,
           taskMemory: 1024,

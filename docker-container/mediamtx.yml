@@ -8,45 +8,81 @@ logDestinations: [stdout]
 readTimeout: 30s
 writeTimeout: 30s
 
+# udpReadBufferSize is intentionally left at the default (0 = use the OS
+# default). The container instance raises net.core.rmem_default via sysctl, so
+# sockets get a large buffer without MediaMTX calling setsockopt(SO_RCVBUF),
+# which fails hard when the kernel limit is lower than the requested size.
+
 authMethod: http
 authHTTPAddress: http://127.0.0.1:9995/auth
 authHTTPExclude: []
 authInternalUsers: []
 
+# Control API is consumed by the Node app over loopback only. With host network
+# mode a wildcard bind here would be publicly reachable.
 api: yes
-apiAddress: :4000
+apiAddress: 127.0.0.1:4000
 apiEncryption: no
 apiAllowOrigins: ['*']
 apiTrustedProxies: []
 
+# TLS is terminated by MediaMTX itself. There is no load balancer in front of
+# it, so /server.crt and /server.key are written by the entrypoint from the
+# exportable ACM certificate before MediaMTX starts.
 playback: yes
+playbackAddress: :9996
+playbackEncryption: yes
+playbackServerKey: /server.key
+playbackServerCert: /server.crt
+
+# "optional" serves plaintext on rtspAddress and TLS on rtspsAddress. Whether
+# the plaintext port is reachable is controlled by the security group
+# (enableInsecurePorts), not here.
 rtsp: yes
 rtspTransports: [tcp]
-rtspEncryption: "no"
+rtspEncryption: "optional"
 rtspAddress: :8554
-rtspsAddress: :8322
+rtspsAddress: :8555
 rtspAuthMethods: [basic]
+rtspServerKey: /server.key
+rtspServerCert: /server.crt
 
 rtmp: yes
+rtmpEncryption: "optional"
 rtmpAddress: :1935
-rtmpEncryption: "no"
 rtmpsAddress: :1936
+rtmpServerKey: /server.key
+rtmpServerCert: /server.crt
 
+# HLS is bound to loopback: the only public HLS entry point is the Node proxy on
+# :9997, which adds lease authorisation and rewrites manifests to signed URLs.
+# Exposing this listener directly would bypass that. Kept plaintext so the proxy
+# can fetch it over loopback without certificate hostname mismatches.
 hls: yes
-hlsAddress: :8888
+hlsAddress: 127.0.0.1:8888
 hlsEncryption: no
 
-# WebRTC signalling is accepted on port 8889 (forwarded from the NLB),
-# but ICE media transport requires direct UDP connectivity which is not
-# available on Fargate. WebRTC is therefore disabled until migrating to
-# EC2 with host networking.
-webrtc: no
+# WebRTC works here because the container uses host network mode on EC2, giving
+# ICE the direct UDP path it needs. webrtcEncryption covers the handshake only;
+# the media itself is always DTLS-encrypted.
+webrtc: yes
 webrtcAddress: :8889
+webrtcEncryption: yes
+webrtcServerKey: /server.key
+webrtcServerCert: /server.crt
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+# Interface IPs are the instance's private addresses, which external clients
+# cannot reach. The entrypoint instead advertises the public FQDN, which
+# resolves to the Elastic IP, via MTX_WEBRTCADDITIONALHOSTS.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: []
 
 srt: yes
 srtAddress: :8890
 
-# MoQ (Media over QUIC) — disabled, requires HTTPS/HTTP3 certificates
+# MoQ (Media over QUIC) requires its own certificates and is not used.
 moq: no
 
 pathDefaults:
