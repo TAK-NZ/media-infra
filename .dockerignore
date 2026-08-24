@@ -1,0 +1,65 @@
+# Docker build context for docker/media-infra/Dockerfile.
+#
+# The CDK asset is defined with `directory: '.'`, so without this file the entire
+# repository is both sent to the Docker daemon and folded into the asset
+# fingerprint. That was 458 MB, including 281 MB of node_modules and 80 MB of
+# fetched test video, which meant an unrelated edit (or a single ./fetch.sh run)
+# changed the image hash and forced a container restart on the next deploy.
+#
+# Deny-list rather than allow-list: `*` excludes the top-level `docker`
+# directory, and CDK stages the context before building, so the Dockerfile
+# itself has to remain in it.
+
+# Dependencies and build output
+node_modules
+**/node_modules
+docker-container/dist
+dist
+cdk.out
+.cdk.staging
+
+# Test harness. test-streams/media holds large fetched video; including it made
+# every fetch.sh run change the container image hash.
+test-streams
+test
+coverage
+*.lcov
+jest.config.js
+
+# CDK app and infrastructure sources. None of this is read by the Dockerfile,
+# which only copies from docker-container/.
+lib
+bin
+scripts
+cdk.json
+cdk.context.json
+tsconfig.json
+package.json
+package-lock.json
+
+# Docs and repository metadata
+docs
+*.md
+LICENSE
+.git
+.github
+.gitignore
+
+# Compiled TypeScript emitted next to sources
+**/*.js.map
+**/*.d.ts
+
+# Local environment and secrets
+.env
+.env.*
+*.p12
+*.pem
+*.key
+*.crt
+*.cert
+
+# Editor and OS noise
+.vscode
+.idea
+*.swp
+.DS_Store

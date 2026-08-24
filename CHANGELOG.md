@@ -56,6 +56,25 @@ migration, so publishers are dropped by the cutover regardless.
 - :bug: Disable Availability Zone Rebalancing. ECS rejects `maximumPercent <= 100` while it is on, and it defaults to on for new services. There is nothing for it to do here: a single task on a single instance has no uneven AZ distribution to correct, and letting ECS move the task between AZs is the instance churn this stack is trying to avoid
 - :white_check_mark: Update the deployment-safety test to assert stop-then-start
 
+#### Scope the Docker build context
+
+The container asset is defined with `directory: '.'` and there was no
+`.dockerignore`, so the entire repository was both shipped to the Docker daemon
+and folded into the asset fingerprint. Two consequences: builds transferred
+hundreds of megabytes they never read, and any unrelated edit changed the image
+hash, producing a new task definition and an unnecessary container restart on the
+next deploy. Running `test-streams/fetch.sh` was enough to do it, because the
+fetched video lands inside the build context.
+
+- :rocket: Add `.dockerignore`, reducing the staged build context from 458 MiB to 244 KiB. Only `docker/media-infra/Dockerfile` and `docker-container/` are sent, which is all the Dockerfile reads
+- :rocket: Editing `test-streams/` or fetching test media no longer changes the container image hash, while changes under `docker-container/` still do
+
+> [!NOTE]
+> This changes the image hash once, so the next deploy rebuilds and replaces the
+> task. Verified by building the staged context for `linux/arm64`: every layer
+> cached against the previous full-context build, confirming the copied content is
+> byte-identical.
+
 #### Tighten health check timings
 
 The AWS defaults (30s interval, threshold 3) give 90 seconds in each direction.
