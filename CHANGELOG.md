@@ -53,6 +53,7 @@ and then need several reloads to recover.
 - :rocket: `fetch.sh` normalises sources to a shared profile (H.264 Main, fixed 2s GOP, no B-frames, `-nal-hrd cbr`, AAC-LC 48 kHz) approximating DJI's HD / SD / Smooth uplink tiers
 - :rocket: `publish.sh` chains several clips through the concat demuxer with `-c copy` for a continuous looping feed
 - :rocket: Assets are video-only by default. ATAK plays any audio track it receives, so an embedded reference tone is audible to the operator; `TS_AUDIO=tone` opts back in when the audio path is what is being tested
+- :rocket: Drop the Big Buck Bunny source now that real aerial footage is catalogued; as synthetic animation its motion said little about how the pipeline handles a drone feed. Note that no remaining source is redistributable, so none should be pulled from CI
 - :rocket: `publish.sh` and `verify.sh` accept a full feed URL in place of a bare UUID, so another environment needs no extra flags
 - :pencil2: Document why an `.m3u8` source cannot exercise RTSP/RTMP/SRT/WebRTC: `syncPaths()` skips MediaMTX path creation for HTTP sources, so those streams are served by the Node proxy and no MediaMTX path exists
 

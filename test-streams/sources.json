@@ -173,25 +173,15 @@
       ]
     },
 
-    "bbb": {
-      "description": "Big Buck Bunny 1080p, 10s. Clearly licensed fallback for when redistribution matters.",
-      "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_30MB.mp4",
-      "licence": "CC-BY 3.0, Blender Foundation",
-      "redistributable": true,
-      "verified": {
-        "container": "mp4",
-        "codec": "h264",
-        "h264_profile": "High",
-        "top_resolution": "1920x1080",
-        "top_fps": "30/1",
-        "duration_s": 10.0,
-        "size_bytes": 30704510,
-        "audio_streams": 0
-      },
-      "notes": [
-        "Synthetic animation, so its motion and rate-control behaviour are unlike real aerial footage. Use it when you need a source whose licence permits redistribution, or when offline.",
-        "The only source here that is safe to reference from CI."
-      ]
-    }
+    "$note": [
+      "Big Buck Bunny was removed once real aerial footage was available: as",
+      "synthetic animation its motion and rate-control behaviour tell you very",
+      "little about how the pipeline handles a drone feed.",
+      "",
+      "One consequence worth knowing: every remaining source is royalty-free stock",
+      "rather than freely redistributable, so none of them should be pulled from",
+      "CI. If a CI-safe source is ever needed, add one with redistributable: true",
+      "instead of reaching for these."
+    ]
   }
 }

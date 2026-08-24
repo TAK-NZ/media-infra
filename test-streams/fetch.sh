@@ -11,7 +11,7 @@
 #   ./fetch.sh dji-nature041            # specific source
 #   ./fetch.sh dji-nature041 dji-sd     # specific source and profile
 #   ./fetch.sh --list                   # show the catalogue
-#   ./fetch.sh --all                    # every redistributable source
+#   ./fetch.sh --all                    # every catalogued source
 #
 # Env:
 #   TS_MEDIA      override the media cache directory

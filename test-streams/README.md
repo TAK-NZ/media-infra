@@ -76,9 +76,8 @@ path, and a real drone exercises a completely different one.
 | `drone-winter-town` | Snowy mill town, 59.94fps source | 25.8s | ~14 MiB |
 | `drone-city-rooftops` | Sunny European city, 1.9:1 crop, 23.976fps | 20.5s | ~11 MiB |
 | `drone-arid-coast` | Remote coastline with surf | 31.1s | ~16 MiB |
-| `bbb` | Big Buck Bunny, synthetic animation | 10.0s | ~29 MiB |
 
-The four `drone-*` clips are royalty-free stock from
+All four are royalty-free stock from
 [dronestock.com](https://dronestock.com/), delivered over Mux. They are chosen to
 stress different parts of the encoder:
 
@@ -92,10 +91,6 @@ stress different parts of the encoder:
   a CBR encoder has bits to spare and should look clean. Longest clip, so it is
   the best single source for a soak test.
 
-`bbb` is the fallback. Its licence (CC-BY 3.0) permits redistribution, so it is
-the only source safe to reference from CI, but as synthetic animation its motion
-is nothing like aerial footage.
-
 ### Licensing
 
 **No media is committed to this repository.** `media/` is gitignored and every
@@ -105,6 +100,12 @@ Royalty-free covers *use*, not redistribution of the raw asset, so the `drone-*`
 clips are marked `redistributable: false` and `fetch.sh` warns when it pulls one.
 Fetch them locally; do not commit them, bake them into a container image, publish
 them, or pull them from CI.
+
+Every source in the catalogue now falls into that category, so **nothing here is
+safe to pull from CI**. Big Buck Bunny previously filled that role under CC-BY,
+but as synthetic animation it said little about how the pipeline handles a drone
+feed. If a CI-safe source is needed later, add one with `redistributable: true`
+rather than reaching for these.
 
 ## Encoder profiles
 
