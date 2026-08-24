@@ -56,6 +56,27 @@ migration, so publishers are dropped by the cutover regardless.
 - :bug: Disable Availability Zone Rebalancing. ECS rejects `maximumPercent <= 100` while it is on, and it defaults to on for new services. There is nothing for it to do here: a single task on a single instance has no uneven AZ distribution to correct, and letting ECS move the task between AZs is the instance churn this stack is trying to avoid
 - :white_check_mark: Update the deployment-safety test to assert stop-then-start
 
+#### Move GitHub Actions off the deprecated Node 20 runtime
+
+Workflow runs were warning that `actions/checkout@v4`, `actions/setup-node@v4` and
+`aws-actions/configure-aws-credentials@v4` target Node 20 and were being forced
+onto Node 24.
+
+Versions match `auth-infra`, `tak-infra` and `base-infra` rather than being chosen
+independently, so the four repositories stay in step. After the bump the
+`setup-cdk` composite action is byte-identical to `auth-infra`'s, which is also
+the evidence that these majors work with these inputs unchanged.
+
+- :arrow_up: `actions/checkout` v4 to v7
+- :arrow_up: `actions/setup-node` v4 to v7
+- :arrow_up: `aws-actions/configure-aws-credentials` v4 to v6
+- :arrow_up: `softprops/action-gh-release` v2 to v3
+- :arrow_up: `docker/setup-qemu-action` and `docker/setup-buildx-action` v3 to v4
+
+> [!NOTE]
+> `configure-aws-credentials@v5` is still Node 20; v6 is the first major on Node
+> 24, so a single-major bump would not have cleared the warning.
+
 #### Build pre-built images for ARM64
 
 The CI image build was still targeting `linux/amd64` while the EC2 migration moved
