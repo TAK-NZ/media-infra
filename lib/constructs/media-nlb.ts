@@ -83,13 +83,24 @@ export class MediaNlb extends Construct {
       targetType: elbv2.TargetType.INSTANCE,
       // Probing the API port means the group tracks task health, not merely
       // whether the instance booted.
+      //
+      // Timings are deliberately tighter than the AWS defaults (30s interval,
+      // threshold 3, which give 90 seconds in each direction). Those 90 seconds
+      // matter in the two situations where more than one instance is registered:
+      // a replacement instance is not servable for 90s after its task is ready,
+      // and an instance that has lost its task keeps receiving traffic for 90s.
+      // The second case was observed black-holing roughly half of all client
+      // connections during a deployment. At 10s and threshold 2 both windows
+      // shrink to about 20 seconds.
+      //
+      // Both thresholds are kept equal, which NLB has historically required.
       healthCheck: {
         protocol: elbv2.Protocol.TCP,
         port: MEDIAMTX_PORTS.API.toString(),
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(10),
-        healthyThresholdCount: 3,
-        unhealthyThresholdCount: 3,
+        interval: cdk.Duration.seconds(10),
+        timeout: cdk.Duration.seconds(5),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 2,
       },
       deregistrationDelay: cdk.Duration.seconds(30),
     });

@@ -53,7 +53,20 @@ inside the single MediaMTX process it was published to and there is no session
 migration, so publishers are dropped by the cutover regardless.
 
 - :bug: Set `minHealthyPercent: 0` and `maxHealthyPercent: 100` so the old task is stopped before the replacement starts
+- :bug: Disable Availability Zone Rebalancing. ECS rejects `maximumPercent <= 100` while it is on, and it defaults to on for new services. There is nothing for it to do here: a single task on a single instance has no uneven AZ distribution to correct, and letting ECS move the task between AZs is the instance churn this stack is trying to avoid
 - :white_check_mark: Update the deployment-safety test to assert stop-then-start
+
+#### Tighten health check timings
+
+The AWS defaults (30s interval, threshold 3) give 90 seconds in each direction.
+That matters whenever more than one instance is registered: a replacement is not
+servable for 90s after its task is ready, and an instance that has lost its task
+keeps receiving traffic for 90s. The second case was observed black-holing
+roughly half of all client connections during a deployment.
+
+- :rocket: Target group health checks move to a 10s interval, 5s timeout and both thresholds at 2, shrinking each window to about 20s. Thresholds are kept equal, which NLB has historically required
+- :rocket: Container health check interval drops from 30s to 10s. The container serves about a second after start, but a 30s interval delayed the first probe to t+30 and left ECS over a minute from steady state. This does not change client-visible downtime, since the target groups attach to the ASG rather than the service, but it decides how quickly the deployment circuit breaker reacts to a broken image
+- :pencil2: `startPeriod` stays at 60s deliberately: a success inside the start period marks the container healthy immediately, so a generous value costs nothing when startup is fast while still covering a cold image pull
 
 #### Fix HLS playlist caching
 

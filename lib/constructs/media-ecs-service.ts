@@ -178,9 +178,23 @@ export class MediaEcsService extends Construct {
         SigningSecret: ecs.Secret.fromSecretsManager(props.secrets.signingSecret),
         MediaSecret: ecs.Secret.fromSecretsManager(props.secrets.mediaSecret),
       },
+      // A 10s interval rather than 30s. In practice the container is serving
+      // about a second after it starts (MediaMTX binds every listener
+      // immediately, and the Node API follows roughly a second later), yet a 30s
+      // interval means the first probe does not run until t+30 and ECS does not
+      // reach steady state for over a minute. This does not affect client-visible
+      // downtime, because the target groups are attached to the ASG rather than
+      // the service and so are not gated on this check; it affects how quickly a
+      // deployment settles and, more importantly, how quickly the circuit breaker
+      // notices a broken image.
+      //
+      // startPeriod stays generous on purpose. Failures inside the start period
+      // do not count toward retries but a success still marks the container
+      // healthy immediately, so a long start period costs nothing when startup is
+      // fast while still protecting a cold image pull.
       healthCheck: {
         command: ['CMD-SHELL', `nc -z localhost ${MEDIAMTX_PORTS.API} || exit 1`],
-        interval: cdk.Duration.seconds(30),
+        interval: cdk.Duration.seconds(10),
         timeout: cdk.Duration.seconds(5),
         retries: 3,
         startPeriod: cdk.Duration.seconds(60),
@@ -258,6 +272,12 @@ export class MediaEcsService extends Construct {
       // regardless. A short, clean interruption is the honest outcome.
       minHealthyPercent: 0,
       maxHealthyPercent: 100,
+      // ECS rejects maxHealthyPercent <= 100 while Availability Zone Rebalancing
+      // is on, and it defaults to on for new services. Rebalancing has nothing
+      // to do here anyway: there is a single task on a single instance, so there
+      // is no uneven AZ distribution to correct, and letting ECS move the task
+      // between AZs is precisely the instance churn this stack avoids.
+      availabilityZoneRebalancing: ecs.AvailabilityZoneRebalancing.DISABLED,
       propagateTags: ecs.PropagatedTagSource.SERVICE,
       enableExecuteCommand: props.envConfig.ecs.enableEcsExec ?? false,
       circuitBreaker: { rollback: true },
