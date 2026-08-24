@@ -32,6 +32,29 @@ while RTSP happened to hit the good target.
 > alternative silently black-holes about half of all client connections for the
 > length of a health-check window.
 
+#### Let the ECS service replace its task
+
+The service asked for `minHealthyPercent: 100` / `maxHealthyPercent: 200`, which
+requires two tasks to run concurrently during a deployment. That is impossible
+here and deadlocks the update:
+
+- The task uses `host` network mode, so it exclusively owns host ports 1935, 8554,
+  8889, 8890, 9996, 9997 and 8189. A second task cannot be placed beside it.
+- With the instance count pinned to one there is nowhere else to place it. A
+  `t4g.large` registers 7813 MiB and the running task holds 4096 MiB, leaving
+  3717 MiB, so ECS fails placement with `TaskFailedToStart: RESOURCE:MEMORY`
+  before it even reaches the port conflict.
+
+ECS therefore retried placement indefinitely while refusing to stop the task
+holding the resources, leaving CloudFormation in `UPDATE_IN_PROGRESS`.
+
+Holding the old task open never protected streams in any case: a stream lives
+inside the single MediaMTX process it was published to and there is no session
+migration, so publishers are dropped by the cutover regardless.
+
+- :bug: Set `minHealthyPercent: 0` and `maxHealthyPercent: 100` so the old task is stopped before the replacement starts
+- :white_check_mark: Update the deployment-safety test to assert stop-then-start
+
 #### Fix HLS playlist caching
 
 Live HLS playlists were served with no `Cache-Control` while Express stamped a

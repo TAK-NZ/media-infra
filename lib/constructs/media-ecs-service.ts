@@ -240,10 +240,24 @@ export class MediaEcsService extends Construct {
         capacityProvider: props.capacityProvider.capacityProviderName,
         weight: 1,
       }],
-      // Never drop below full capacity mid-deployment: a restarting media
-      // server drops every in-flight stream.
-      minHealthyPercent: 100,
-      maxHealthyPercent: 200,
+      // Stop the old task before starting the new one. This looks like the
+      // wrong choice for availability, but 100/200 deadlocks here and buys
+      // nothing:
+      //
+      // The task uses host network mode, so it owns host ports 1935, 8554,
+      // 8889, 8890, 9996, 9997 and 8189 exclusively; a second task cannot be
+      // placed on the same instance. The ASG is capped at one instance (see
+      // media-ec2-compute), so there is nowhere else to put it either. Demanding
+      // 100% healthy therefore asks ECS to start a replacement it can never
+      // place while refusing to stop the task holding the ports, and the
+      // deployment spins until the circuit breaker rolls it back.
+      //
+      // Keeping the old task alive would not preserve streams anyway. A stream
+      // lives inside the single MediaMTX process it was published to, and there
+      // is no session migration, so publishers are dropped by the cutover
+      // regardless. A short, clean interruption is the honest outcome.
+      minHealthyPercent: 0,
+      maxHealthyPercent: 100,
       propagateTags: ecs.PropagatedTagSource.SERVICE,
       enableExecuteCommand: props.envConfig.ecs.enableEcsExec ?? false,
       circuitBreaker: { rollback: true },

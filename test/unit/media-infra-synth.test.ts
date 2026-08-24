@@ -356,15 +356,17 @@ describe('MediaInfraStack synthesis', () => {
   });
 
   describe('deployment safety', () => {
-    it('holds full capacity through a deployment', () => {
+    it('replaces the task by stopping it first', () => {
       const template = synth();
 
-      // A restarting media server drops every in-flight stream, so the old task
-      // must stay up until the replacement is healthy.
+      // Host network mode gives the task exclusive ownership of the media host
+      // ports, and the ASG is capped at one instance, so a replacement task can
+      // never be placed alongside the old one. Requiring 100% healthy deadlocks
+      // the deployment until the circuit breaker rolls it back.
       template.hasResourceProperties('AWS::ECS::Service', {
         DeploymentConfiguration: Match.objectLike({
-          MinimumHealthyPercent: 100,
-          MaximumPercent: 200,
+          MinimumHealthyPercent: 0,
+          MaximumPercent: 100,
           DeploymentCircuitBreaker: Match.objectLike({ Enable: true, Rollback: true }),
         }),
         PropagateTags: 'SERVICE',
