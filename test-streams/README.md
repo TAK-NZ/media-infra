@@ -124,12 +124,24 @@ stereo. The fixed GOP and absent B-frames are what make the output resemble a
 hardware drone encoder rather than a file transcode; scene-cut detection is
 disabled so keyframe spacing is genuinely constant.
 
-Every catalogued source is silent, so `fetch.sh` synthesises a 440 Hz tone. A
-silent track would still exercise the audio path but would make "audio arrived"
-indistinguishable from "audio was never sent".
+### Audio
+
+Assets are **video-only by default**. ATAK plays whatever audio track it is
+given, so anything embedded here is audible to the operator as a hum or beep. A
+test feed should be silent unless audio is what you are testing.
+
+| `TS_AUDIO` | Result |
+|---|---|
+| `silent` (default) | No audio stream at all (`-an`) |
+| `tone` | 440 Hz reference tone, useful to prove the audio path end to end |
+| `source` | Keep the source's own audio, falling back to video-only if it has none |
+
+The mode is part of the asset filename (`<source>.<profile>.<mode>.mp4`) so
+switching modes cannot silently reuse an asset built the other way.
 
 ```bash
 ./fetch.sh drone-arid-coast dji-sd     # specific source and profile
+TS_AUDIO=tone ./fetch.sh               # embed the reference tone
 TS_DURATION=10 ./fetch.sh              # cap the asset length
 TS_FORCE=1 ./fetch.sh                  # re-encode even if cached
 ```
@@ -169,9 +181,24 @@ and is harmless.
 ./publish.sh <uuid> --once drone-night-city      # single pass instead of looping
 ./publish.sh <uuid> --profile dji-sd             # lower tier
 ./publish.sh <uuid> --protocol srt               # ingest over SRT instead of RTMP
-./publish.sh <uuid> --host media.example.com     # different environment
 ./publish.sh <uuid> /path/to/your.mp4            # a file, bypassing the catalogue
 ```
+
+### Targeting another environment
+
+Both `publish.sh` and `verify.sh` accept a full feed URL in place of a bare UUID,
+and take the host from it. A URL also determines the protocol, overriding
+`--protocol`, since silently ignoring the scheme the caller typed would be
+surprising.
+
+```bash
+./publish.sh rtmp://media.demo.tak.nz:1935/<uuid> --all-drone
+./publish.sh 'srt://media.demo.tak.nz:8890?streamid=publish:<uuid>'
+./verify.sh  https://media.demo.tak.nz:8889/<uuid>
+```
+
+`--host` still works for the bare-UUID form. Quote SRT URLs: the `?` and `&` are
+shell metacharacters.
 
 Ingest defaults to RTMP on port 1935 because that is what DJI aircraft actually
 use. Per DJI's SDK documentation, MSDK v5 supports RTMP (not RTMPS), GB28181,
@@ -198,3 +225,22 @@ Cached assets are validated by probing for a decodable duration, not by checking
 that the file exists. An interrupted encode leaves a file with no `moov` atom,
 and silently reusing it produces a confusing failure in `publish.sh` far from the
 actual cause.
+
+## Deployments and this harness
+
+The service is single-instance: a published stream lives in one MediaMTX process
+with no clustering, and the NLB target groups are attached to the Auto Scaling
+Group rather than to task placement. Every ASG instance is therefore a registered
+target whether or not it runs the task.
+
+That matters when reading a failed run. During a deployment ECS may briefly place
+the new task on a second instance while the old one is still registered, and for
+the length of one health-check window the load balancer will balance onto an
+instance with nothing listening. `verify.sh` reports that as connection refused or
+empty replies on some protocols but not others, which looks alarming and is
+transient. Re-run it once the ASG has settled back to a single instance.
+
+`maxCapacity` is pinned to 1 to keep that window from opening at all. The tradeoff
+is that deployments become a hard cutover rather than a rolling replacement, so
+the publisher has to reconnect. That is preferable to silently failing half of
+all client connections, but it is a tradeoff rather than a free win.

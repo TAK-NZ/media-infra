@@ -97,14 +97,18 @@ describe('MediaInfraStack synthesis', () => {
     });
 
     it('launches ARM64 instances of the configured type', () => {
-      const template = synth({ ec2: { instanceType: 'm7g.large', minCapacity: 1, maxCapacity: 3 } });
+      const template = synth({ ec2: { instanceType: 'm7g.large', minCapacity: 1, maxCapacity: 1 } });
 
       template.hasResourceProperties('AWS::EC2::LaunchTemplate', {
         LaunchTemplateData: Match.objectLike({ InstanceType: 'm7g.large' }),
       });
+      // Pinned to a single instance: the service is not horizontally scalable,
+      // because a published stream exists only on the MediaMTX process it
+      // reached, and extra ASG instances become load balancer targets that run
+      // no task.
       template.hasResourceProperties('AWS::AutoScaling::AutoScalingGroup', {
         MinSize: '1',
-        MaxSize: '3',
+        MaxSize: '1',
       });
     });
 

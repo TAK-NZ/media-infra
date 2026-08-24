@@ -11,6 +11,12 @@
 #   ./verify.sh <stream-uuid> --expect-eip 184.33.122.159
 #   ./verify.sh <stream-uuid> --skip webrtc,srt
 #
+# The argument may also be a full feed URL, from which the host and stream name
+# are taken, so another environment needs no extra flags:
+#
+#   ./verify.sh https://media.demo.tak.nz:8889/<uuid>
+#   ./verify.sh rtmp://media.demo.tak.nz:1935/<uuid>
+#
 # Env:
 #   TS_HOST        endpoint host (default: media.test.tak.nz)
 #   TS_STREAM      stream UUID, if not passed as the first argument
@@ -35,11 +41,12 @@ while [ $# -gt 0 ]; do
         --skip)         SKIP="$2"; shift 2 ;;
         --probe-secs)   PROBE_SECS="$2"; shift 2 ;;
         -*)             die "Unknown option: $1" ;;
-        *)              TS_STREAM="$1"; shift ;;
+        *)              parse_stream_arg "$1"; shift ;;
     esac
 done
 
 resolve_target
+info "Verifying stream $TS_STREAM on $TS_HOST"
 
 PASS=0; FAIL=0; SKIPPED=0
 declare -a FAILURES=()
@@ -85,8 +92,14 @@ check_decode() {
         return
     fi
 
-    local audio=''
-    printf '%s' "$probe" | grep -q 'audio' && audio=' +audio'
+    # Audio is optional: test feeds are normally video-only so that ATAK stays
+    # silent. The `|| true` matters under `set -e` -- an AND-list that is the
+    # whole statement aborts the script when the left side fails, so a
+    # video-only stream would kill the run here rather than reporting a pass.
+    local audio=' (video only)'
+    if printf '%s' "$probe" | grep -q 'audio'; then
+        audio=' +audio'
+    fi
     pass "$label: $res${audio}, ${PROBE_SECS}s decoded clean"
 }
 
@@ -116,7 +129,7 @@ if skipped hls; then skip "HLS"; else
     BASE="https://$TS_HOST:9997"
     MASTER="$BASE/stream/$TS_STREAM/index.m3u8"
 
-    code="$(curl -sS -o "$WORK/master.m3u8" -D "$WORK/master.h" -w '%{http_code}' --max-time 25 "$MASTER" || echo 000)"
+    code="$(curl -sS -o "$WORK/master.m3u8" -D "$WORK/master.h" -w '%{http_code}' --max-time 25 "$MASTER")" || true
     if [ "$code" != "200" ]; then
         fail "HLS master playlist: http=$code"
     else
@@ -144,7 +157,7 @@ if skipped hls; then skip "HLS"; else
             cp "$WORK/master.m3u8" "$WORK/media.m3u8"
             info "     (single-variant playlist)"
         else
-            mcode="$(curl -sS -o "$WORK/media.m3u8" -D "$WORK/media.h" -w '%{http_code}' --max-time 25 "$BASE$VID" || echo 000)"
+            mcode="$(curl -sS -o "$WORK/media.m3u8" -D "$WORK/media.h" -w '%{http_code}' --max-time 25 "$BASE$VID")" || true
             if [ "$mcode" != "200" ]; then
                 fail "HLS media playlist: http=$mcode"
             else
@@ -167,12 +180,12 @@ if skipped hls; then skip "HLS"; else
             NEW="$(grep -v '^#' "$WORK/media.m3u8" | grep -E 'segment|\.m4s|\.ts' | tail -1 || true)"
 
             if [ -n "$INIT" ]; then
-                icode="$(curl -sS -o "$WORK/init.mp4" -w '%{http_code}' --max-time 25 "$BASE$INIT" || echo 000)"
+                icode="$(curl -sS -o "$WORK/init.mp4" -w '%{http_code}' --max-time 25 "$BASE$INIT")" || true
                 [ "$icode" = "200" ] && pass "HLS init segment: http=200 ($(stat -c%s "$WORK/init.mp4") bytes)" \
                                      || fail "HLS init segment: http=$icode"
             fi
             if [ -n "$NEW" ]; then
-                scode="$(curl -sS -o "$WORK/seg.bin" -w '%{http_code}' --max-time 30 "$BASE$NEW" || echo 000)"
+                scode="$(curl -sS -o "$WORK/seg.bin" -w '%{http_code}' --max-time 30 "$BASE$NEW")" || true
                 if [ "$scode" = "200" ]; then
                     pass "HLS newest segment: http=200 ($(stat -c%s "$WORK/seg.bin") bytes)"
                 else
@@ -223,7 +236,7 @@ SDP
     wcode="$(curl -sS -o "$WORK/answer.sdp" -w '%{http_code}' --max-time 25 \
         -X POST -H 'Content-Type: application/sdp' \
         --data-binary @"$WORK/offer.sdp" \
-        "https://$TS_HOST:8889/$TS_STREAM/whep" || echo 000)"
+        "https://$TS_HOST:8889/$TS_STREAM/whep")" || true
 
     if [ "$wcode" = "201" ]; then
         pass "WebRTC WHEP: http=201 Created"

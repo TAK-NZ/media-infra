@@ -9,7 +9,7 @@ export const mockDevConfig = {
   ec2: {
     instanceType: 't4g.large',
     minCapacity: 1,
-    maxCapacity: 2
+    maxCapacity: 1
   },
   ecs: {
     taskCpu: 512,
@@ -35,7 +35,7 @@ export const mockProdConfig = {
   ec2: {
     instanceType: 't4g.xlarge',
     minCapacity: 1,
-    maxCapacity: 2
+    maxCapacity: 1
   },
   ecs: {
     taskCpu: 1024,

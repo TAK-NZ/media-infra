@@ -35,7 +35,7 @@ describe('Library Exports', () => {
         ec2: {
           instanceType: 't4g.large',
           minCapacity: 1,
-          maxCapacity: 2
+          maxCapacity: 1
         },
         ecs: {
           taskCpu: 512,

@@ -79,10 +79,55 @@ assert_profile_exists() {
     fi
 }
 
-# Normalised asset path for a given source + profile pair.
+# Normalised asset path for a given source + profile + audio mode.
+#
+# The audio mode is part of the filename so that switching modes cannot silently
+# reuse an asset built the other way. That matters: a stray audio track is
+# audible as a hum or beep in ATAK.
 asset_path() {
-    local source_id="$1" profile_id="$2"
-    printf '%s/%s.%s.mp4' "$TS_MEDIA" "$source_id" "$profile_id"
+    local source_id="$1" profile_id="$2" audio_mode="${3:-${TS_AUDIO:-silent}}"
+    printf '%s/%s.%s.%s.mp4' "$TS_MEDIA" "$source_id" "$profile_id" "$audio_mode"
+}
+
+# Accept either a bare stream UUID or a full feed URL.
+#
+# Sets TS_STREAM always, and TS_HOST / TS_SCHEME / TS_PORT / TS_URL when a URL
+# was given. This is what lets the harness point at a different environment
+# without editing anything.
+parse_stream_arg() {
+    local arg="$1"
+
+    if [[ "$arg" != *"://"* ]]; then
+        TS_STREAM="$arg"
+        return 0
+    fi
+
+    TS_URL="$arg"
+    TS_SCHEME="${arg%%://*}"
+
+    local rest="${arg#*://}"
+    local path=''
+    [[ "$rest" == */* ]] && path="${rest#*/}"
+
+    # Strip the query string before reading the port. With SRT there is no path,
+    # so the query follows the port directly and a naive "after the last colon"
+    # would pick up the streamid instead.
+    local hostport="${rest%%/*}"
+    hostport="${hostport%%\?*}"
+
+    TS_HOST="${hostport%%:*}"
+    [[ "$hostport" == *:* ]] && TS_PORT="${hostport##*:}"
+
+    # SRT carries the stream name in ?streamid=publish:<uuid> rather than a path.
+    if [[ "$arg" == *streamid=* ]]; then
+        local sid="${arg##*streamid=}"
+        sid="${sid%%&*}"
+        TS_STREAM="${sid##*:}"
+    else
+        TS_STREAM="${path%%\?*}"
+    fi
+
+    [ -n "$TS_STREAM" ] || die "Could not determine the stream name from: $arg"
 }
 
 # Warn loudly before fetching anything we are not licensed to redistribute.

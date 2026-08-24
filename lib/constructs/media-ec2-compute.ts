@@ -106,6 +106,15 @@ export class MediaEc2Compute extends Construct {
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       launchTemplate,
       minCapacity: props.envConfig.ec2.minCapacity,
+      // This service is single-instance by construction, so maxCapacity must be
+      // 1 (enforced in validateEnvConfig).
+      //
+      // A stream published over RTMP lands on exactly one MediaMTX process and
+      // exists only there. There is no clustering between instances, so a second
+      // instance cannot serve that stream. Worse, the target groups below are
+      // attached to the ASG, which means every instance in the group is a load
+      // balancer target whether or not it runs the task: a second instance
+      // becomes a black hole that fails roughly half of all client connections.
       maxCapacity: props.envConfig.ec2.maxCapacity,
       // desiredCapacity is deliberately unset: the capacity provider's managed
       // scaling owns it, and pinning it here would reset the group on every
@@ -132,7 +141,13 @@ export class MediaEc2Compute extends Construct {
     // Register instances with the load balancer. Doing this on the ASG rather
     // than the ECS service sidesteps the five-target-groups-per-service ECS
     // limit; each group's health check probes the API port, so an instance whose
-    // task is not running is still marked unhealthy.
+    // task is not running eventually fails its health check.
+    //
+    // "Eventually" is the catch, and the reason maxCapacity is pinned to 1:
+    // registration follows ASG membership, not task placement. When ECS moves
+    // the task to another instance the old one stays a registered target until
+    // its health checks fail, and during that window the NLB happily balances
+    // onto an instance with no MediaMTX listening.
     for (const targetGroup of props.targetGroups) {
       this.autoScalingGroup.attachToNetworkTargetGroup(targetGroup);
     }

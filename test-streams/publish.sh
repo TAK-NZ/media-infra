@@ -14,11 +14,18 @@
 #   ./publish.sh <uuid> --profile dji-sd drone-night-city # non-default profile
 #   ./publish.sh <uuid> --once drone-night-city          # single pass, no loop
 #
+# The first argument may be a full feed URL instead of a UUID, which is how you
+# target another environment:
+#
+#   ./publish.sh rtmp://media.demo.tak.nz:1935/<uuid> --all-drone
+#   ./publish.sh 'srt://media.demo.tak.nz:8890?streamid=publish:<uuid>'
+#
 # Env:
 #   TS_HOST      endpoint host (default: media.test.tak.nz)
 #   TS_STREAM    stream UUID, if not passed as the first argument
 #   TS_PROFILE   encoder profile (default: dji-hd)
 #   TS_PROTOCOL  ingest protocol: rtmp (default) | srt | rtsp
+#   TS_AUDIO     which audio variant of the assets to publish (default: silent)
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
@@ -42,7 +49,9 @@ while [ $# -gt 0 ]; do
         --host)      TS_HOST="$2"; shift 2 ;;
         -*)          die "Unknown option: $1" ;;
         *)
-            if [ -z "${TS_STREAM:-}" ]; then TS_STREAM="$1"; else REQUESTED+=("$1"); fi
+            # First bare argument is the target (UUID or full URL); the rest are
+            # source ids or file paths.
+            if [ -z "${TS_STREAM:-}" ]; then parse_stream_arg "$1"; else REQUESTED+=("$1"); fi
             shift ;;
     esac
 done
@@ -72,20 +81,33 @@ for id in "${REQUESTED[@]}"; do
     asset="$(asset_path "$id" "$PROFILE")"
     if [ ! -f "$asset" ]; then
         die "Asset not built: $asset
-Run: ./fetch.sh $id $PROFILE"
+Run: TS_AUDIO=${TS_AUDIO:-silent} ./fetch.sh $id $PROFILE"
     fi
     ASSETS+=("$asset")
 done
 
-case "$PROTOCOL" in
-    rtmp) TARGET="rtmp://$TS_HOST:1935/$TS_STREAM"; OUTFMT=(-f flv) ;;
-    srt)  TARGET="srt://$TS_HOST:8890?streamid=publish:$TS_STREAM"; OUTFMT=(-f mpegts) ;;
-    rtsp) TARGET="rtsp://$TS_HOST:8554/$TS_STREAM"; OUTFMT=(-f rtsp -rtsp_transport tcp) ;;
-    *)    die "Unsupported protocol: $PROTOCOL (expected rtmp, srt or rtsp)" ;;
-esac
+# A full URL wins over --protocol: it already says which protocol to use, and
+# silently overriding the URL the caller typed would be surprising.
+if [ -n "${TS_URL:-}" ]; then
+    TARGET="$TS_URL"
+    PROTOCOL="${TS_SCHEME:-$PROTOCOL}"
+    case "$PROTOCOL" in
+        rtmp|rtmps) OUTFMT=(-f flv) ;;
+        srt)        OUTFMT=(-f mpegts) ;;
+        rtsp|rtsps) OUTFMT=(-f rtsp -rtsp_transport tcp) ;;
+        *)          die "Unsupported scheme in feed URL: $PROTOCOL" ;;
+    esac
+else
+    case "$PROTOCOL" in
+        rtmp) TARGET="rtmp://$TS_HOST:1935/$TS_STREAM"; OUTFMT=(-f flv) ;;
+        srt)  TARGET="srt://$TS_HOST:8890?streamid=publish:$TS_STREAM"; OUTFMT=(-f mpegts) ;;
+        rtsp) TARGET="rtsp://$TS_HOST:8554/$TS_STREAM"; OUTFMT=(-f rtsp -rtsp_transport tcp) ;;
+        *)    die "Unsupported protocol: $PROTOCOL (expected rtmp, srt or rtsp)" ;;
+    esac
+fi
 
 info "Publishing to $TARGET"
-info "Profile: $PROFILE   Protocol: $PROTOCOL   Loop: $([ $LOOP -eq 1 ] && echo forever || echo once)"
+info "Profile: $PROFILE   Protocol: $PROTOCOL   Audio: ${TS_AUDIO:-silent}   Loop: $([ $LOOP -eq 1 ] && echo forever || echo once)"
 total=0
 for a in "${ASSETS[@]}"; do
     dur="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$a" 2>/dev/null || echo 0)"

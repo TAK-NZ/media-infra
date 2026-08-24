@@ -12,6 +12,26 @@
 
 ### Pending Release
 
+#### Pin the container instance count to one
+
+The Auto Scaling Group allowed two instances while only one MediaMTX task ever
+runs. Because the NLB target groups are attached to the ASG rather than to task
+placement, the second instance was registered as a target for all six listeners
+without running the task, and the load balancer balanced onto it. Roughly half of
+all client connections failed — observed in practice during a deployment as
+connection refused on RTMP, I/O errors on SRT and empty replies on HLS and WebRTC,
+while RTSP happened to hit the good target.
+
+- :bug: Set `maxCapacity` to 1 for both environments; a stream exists only on the MediaMTX process it was published to, so a second instance cannot serve it
+- :bug: Reject `maxCapacity > 1` in `validateEnvConfig` so the constraint cannot regress through a context override
+- :white_check_mark: Add validation coverage for the capacity rule
+
+> [!NOTE]
+> This makes deployments a hard cutover rather than a rolling replacement, so a
+> publisher must reconnect afterwards. That is a deliberate tradeoff: the
+> alternative silently black-holes about half of all client connections for the
+> length of a health-check window.
+
 #### Fix HLS playlist caching
 
 Live HLS playlists were served with no `Cache-Control` while Express stamped a
@@ -32,6 +52,8 @@ and then need several reloads to recover.
 - :white_check_mark: `verify.sh` decodes frames on RTSP, RTMP, SRT and HLS, walks the full HLS master → media → segment chain, asserts playlists are uncacheable, and checks WebRTC ICE advertises the Elastic IP. Exits non-zero on failure
 - :rocket: `fetch.sh` normalises sources to a shared profile (H.264 Main, fixed 2s GOP, no B-frames, `-nal-hrd cbr`, AAC-LC 48 kHz) approximating DJI's HD / SD / Smooth uplink tiers
 - :rocket: `publish.sh` chains several clips through the concat demuxer with `-c copy` for a continuous looping feed
+- :rocket: Assets are video-only by default. ATAK plays any audio track it receives, so an embedded reference tone is audible to the operator; `TS_AUDIO=tone` opts back in when the audio path is what is being tested
+- :rocket: `publish.sh` and `verify.sh` accept a full feed URL in place of a bare UUID, so another environment needs no extra flags
 - :pencil2: Document why an `.m3u8` source cannot exercise RTSP/RTMP/SRT/WebRTC: `syncPaths()` skips MediaMTX path creation for HTTP sources, so those streams are served by the Node proxy and no MediaMTX path exists
 
 > [!NOTE]

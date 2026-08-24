@@ -17,6 +17,9 @@
 #   TS_MEDIA      override the media cache directory
 #   TS_DURATION   cap the normalised asset length in seconds (default: full clip)
 #   TS_FORCE=1    re-encode even if the asset is already cached
+#   TS_AUDIO      silent (default, no audio track) | tone (440 Hz) | source
+#                 Video-only is the default because ATAK plays any audio track
+#                 it receives, so a tone is audible to the operator.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
@@ -122,13 +125,8 @@ normalise() {
     h264l="$(profile_field "$profile" h264_level)"
     gop=$(( fps * TS_GOP_SECONDS ))
 
-    # Sources in this catalogue are silent camera masters. A DJI livestream
-    # normally carries an AAC track, and MediaMTX handles audio and video paths
-    # separately, so we synthesise a quiet tone rather than dropping audio. A
-    # silent track would still exercise the path but makes it impossible to tell
-    # "audio arrived" from "audio was never sent".
-    # These probes must not abort the script under `set -e`: an absent audio
-    # stream is an expected outcome, and grep exits 1 when it matches nothing.
+    # This probe must not abort the script under `set -e`: an absent audio stream
+    # is an expected outcome, and grep exits 1 when it matches nothing.
     local has_audio vidx
     has_audio="$(ffprobe -v error -select_streams a -show_entries stream=index \
         -of csv=p=0 "$input" 2>/dev/null | grep -E '^[0-9]+$' | head -1 || true)"
@@ -155,15 +153,40 @@ normalise() {
         fi
     fi
 
-    local -a audio_in=() maps=()
-    if [ -n "$has_audio" ]; then
-        maps=(-map "0:$vidx" -map 0:a:0)
-    else
-        info "  source has no audio track; synthesising a 440 Hz reference tone"
-        # Give the tone a finite duration too, so neither input is unbounded.
-        audio_in=(-f lavfi -i "sine=frequency=440:sample_rate=$TS_AUDIO_RATE:duration=$limit")
-        maps=(-map "0:$vidx" -map 1:a:0)
-    fi
+    # Audio mode. Video-only is the default deliberately: ATAK plays whatever
+    # audio track it is given, so a synthesised reference tone is audible to the
+    # operator as a hum or beep. A test feed should be silent unless the audio
+    # path is what you are actually testing.
+    local -a audio_in=() maps=() audio_codec=()
+    case "${TS_AUDIO:-silent}" in
+        silent)
+            maps=(-map "0:$vidx")
+            audio_codec=(-an)
+            [ -n "$has_audio" ] && info "  dropping the source audio track (TS_AUDIO=tone to keep a tone)"
+            ;;
+        tone)
+            # Finite duration, so neither input is unbounded.
+            warn "  embedding a 440 Hz tone; this is audible in ATAK"
+            audio_in=(-f lavfi -i "sine=frequency=440:sample_rate=$TS_AUDIO_RATE:duration=$limit")
+            maps=(-map "0:$vidx" -map 1:a:0)
+            audio_codec=(-c:a "$TS_AUDIO_CODEC" -profile:a aac_low -b:a "$TS_AUDIO_BITRATE"
+                         -ar "$TS_AUDIO_RATE" -ac "$TS_AUDIO_CHANNELS")
+            ;;
+        source)
+            if [ -n "$has_audio" ]; then
+                maps=(-map "0:$vidx" -map 0:a:0)
+                audio_codec=(-c:a "$TS_AUDIO_CODEC" -profile:a aac_low -b:a "$TS_AUDIO_BITRATE"
+                             -ar "$TS_AUDIO_RATE" -ac "$TS_AUDIO_CHANNELS")
+            else
+                warn "  TS_AUDIO=source but the source is silent; producing video only"
+                maps=(-map "0:$vidx")
+                audio_codec=(-an)
+            fi
+            ;;
+        *)
+            die "Unknown TS_AUDIO mode: ${TS_AUDIO} (expected silent, tone or source)"
+            ;;
+    esac
 
     local -a duration=(-t "$limit" -shortest)
 
@@ -180,8 +203,7 @@ normalise() {
         -vf "scale=$w:$h:force_original_aspect_ratio=decrease,pad=$w:$h:(ow-iw)/2:(oh-ih)/2,setsar=1" \
         -r "$fps" -g "$gop" -keyint_min "$gop" -sc_threshold 0 -bf 0 \
         -b:v "$vb" -minrate "$vb" -maxrate "$vb" -bufsize "$bufsize" -nal-hrd cbr \
-        -c:a "$TS_AUDIO_CODEC" -profile:a aac_low -b:a "$TS_AUDIO_BITRATE" \
-        -ar "$TS_AUDIO_RATE" -ac "$TS_AUDIO_CHANNELS" \
+        "${audio_codec[@]}" \
         -movflags +faststart \
         "$output" || die "Encode failed"
 }
