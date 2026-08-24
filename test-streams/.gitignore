@@ -1,0 +1,8 @@
+# Fetched and generated media. Never commit test footage: the DJI sample clips
+# are copyright DJI and are not redistributable, and even the freely licensed
+# sources are far too large to belong in git.
+media/
+
+# Generated concat playlists and run state
+*.playlist
+*.pid

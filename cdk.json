@@ -21,9 +21,15 @@
       "stackName": "Demo",
       "enableInsecurePorts": true,
       "usePreBuiltImages": false,
+      "logLevel": "info",
+      "ec2": {
+        "instanceType": "t4g.large",
+        "minCapacity": 1,
+        "maxCapacity": 1
+      },
       "ecs": {
         "taskCpu": 1024,
-        "taskMemory": 2048,
+        "taskMemory": 4096,
         "desiredCount": 1,
         "enableDetailedLogging": true,
         "enableEcsExec": true
@@ -31,7 +37,7 @@
       "general": {
         "removalPolicy": "destroy",
         "enableDetailedLogging": true,
-        "enableContainerInsights": false
+        "enableContainerInsights": true
       },
       "ecr": {
         "imageRetentionCount": 5,
@@ -41,7 +47,7 @@
         "mediamtxImageTag": "latest"
       },
       "mediamtx": {
-        "version": "1.15.5",
+        "version": "1.19.0",
         "buildRevision": 1
       }
     },
@@ -49,9 +55,15 @@
       "stackName": "Prod",
       "enableInsecurePorts": false,
       "usePreBuiltImages": true,
+      "logLevel": "warn",
+      "ec2": {
+        "instanceType": "t4g.xlarge",
+        "minCapacity": 1,
+        "maxCapacity": 1
+      },
       "ecs": {
         "taskCpu": 2048,
-        "taskMemory": 4096,
+        "taskMemory": 8192,
         "desiredCount": 1,
         "enableDetailedLogging": false,
         "enableEcsExec": false
@@ -69,7 +81,7 @@
         "mediamtxImageTag": "stable"
       },
       "mediamtx": {
-        "version": "1.15.5",
+        "version": "1.19.0",
         "buildRevision": 1
       }
     },

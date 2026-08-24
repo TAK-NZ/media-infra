@@ -8,45 +8,76 @@ logDestinations: [stdout]
 readTimeout: 30s
 writeTimeout: 30s
 
+# udpReadBufferSize is intentionally left at the default (0 = use the OS
+# default). The container instance raises net.core.rmem_default via sysctl, so
+# sockets get a large buffer without MediaMTX calling setsockopt(SO_RCVBUF),
+# which fails hard when the kernel limit is lower than the requested size.
+
 authMethod: http
 authHTTPAddress: http://127.0.0.1:9995/auth
 authHTTPExclude: []
 authInternalUsers: []
 
+# Control API is consumed by the Node app over loopback only. With host network
+# mode a wildcard bind here would be publicly reachable.
 api: yes
-apiAddress: :4000
+apiAddress: 127.0.0.1:4000
 apiEncryption: no
 apiAllowOrigins: ['*']
 apiTrustedProxies: []
 
+#
+# Every listener below is plaintext. TLS for client-facing traffic is terminated
+# by the Network Load Balancer using the shared ACM certificate, which forwards
+# decrypted traffic to these ports inside the VPC. The container holds no
+# certificate material.
+#
 playback: yes
+playbackAddress: :9996
+playbackEncryption: no
+
 rtsp: yes
 rtspTransports: [tcp]
 rtspEncryption: "no"
 rtspAddress: :8554
-rtspsAddress: :8322
 rtspAuthMethods: [basic]
 
 rtmp: yes
-rtmpAddress: :1935
 rtmpEncryption: "no"
-rtmpsAddress: :1936
+rtmpAddress: :1935
 
+# HLS is bound to loopback: the only entry point for HLS is the Node proxy on
+# :9997, which adds lease authorisation and rewrites manifests to signed URLs.
+# Exposing this listener would bypass that.
 hls: yes
-hlsAddress: :8888
+hlsAddress: 127.0.0.1:8888
 hlsEncryption: no
 
-# WebRTC signalling is accepted on port 8889 (forwarded from the NLB),
-# but ICE media transport requires direct UDP connectivity which is not
-# available on Fargate. WebRTC is therefore disabled until migrating to
-# EC2 with host networking.
-webrtc: no
+#
+# WebRTC signalling (8889) arrives via the NLB, so it is plaintext here.
+#
+# ICE media on 8189 does NOT pass through the load balancer — it needs the direct
+# UDP path that host network mode on EC2 provides, which is the reason this
+# service does not run on Fargate. WebRTC media is always DTLS-encrypted using
+# keys exchanged in the SDP, independently of any TLS certificate.
+#
+webrtc: yes
 webrtcAddress: :8889
+webrtcEncryption: no
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+# Interface IPs are the instance's private addresses, which external clients
+# cannot reach. The task definition sets MTX_WEBRTCADDITIONALHOSTS to the Elastic
+# IP so ICE candidates reference a routable address.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: []
 
+# SRT carries its own encryption, so it passes through the NLB unmodified.
 srt: yes
 srtAddress: :8890
 
-# MoQ (Media over QUIC) — disabled, requires HTTPS/HTTP3 certificates
+# MoQ (Media over QUIC) requires its own certificates and is not used.
 moq: no
 
 pathDefaults:

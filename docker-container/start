@@ -1,6 +1,12 @@
 #!/bin/sh
 #
-# Add MediaConfig File
+# MediaMTX container entrypoint.
+#
+# Applies runtime config, starts the Node API server, then hands PID 1 to
+# MediaMTX.
+#
+# No TLS material is handled here: the Network Load Balancer terminates TLS for
+# all client-facing ports and forwards plaintext into the VPC.
 #
 
 set -eu
@@ -8,7 +14,6 @@ set -eu
 cd /
 
 LOGLEVEL=${LOG_LEVEL:-info}
-
 AUTH_ADDRESS="http://127.0.0.1:9995/auth"
 
 if [ "${CLOUDTAK_Mode:-}" = "docker-compose" ] && printf '%s' "$API_URL" | grep -q 'localhost'; then
@@ -18,6 +23,15 @@ fi
 
 sed -i "s|^authHTTPAddress: .*|authHTTPAddress: ${AUTH_ADDRESS}|" /mediamtx.yml
 sed -i "s|^logLevel: .*|logLevel: ${LOGLEVEL}|" /mediamtx.yml
+
+# MTX_WEBRTCADDITIONALHOSTS is set on the task definition to the Elastic IP.
+# MediaMTX picks MTX_* variables up from the environment directly, so it only
+# needs echoing here for diagnostics.
+if [ -n "${MTX_WEBRTCADDITIONALHOSTS:-}" ]; then
+  echo "ok - advertising WebRTC ICE host ${MTX_WEBRTCADDITIONALHOSTS}"
+else
+  echo "warn - MTX_WEBRTCADDITIONALHOSTS is unset; WebRTC ICE candidates will not be reachable" >&2
+fi
 
 node /dist/index.js &
 

@@ -9,34 +9,50 @@ import { MEDIAMTX_PORTS } from '../utils/constants';
 
 export interface MediaNlbProps {
   vpc: ec2.IVpc;
+  /** Shared ACM certificate imported from BaseInfra; never exported */
   certificate: acm.ICertificate;
   hostedZone: route53.IHostedZone;
+  /** Subdomain label for the media server, e.g. "video" */
   mediaHostname: string;
   stackNameComponent: string;
   enableInsecurePorts: boolean;
   nlbSecurityGroup: ec2.SecurityGroup;
 }
 
+/**
+ * Network Load Balancer fronting the media server.
+ *
+ * The NLB terminates TLS for every client-facing port using the shared ACM
+ * certificate, which is why the container needs no certificate material of its
+ * own. ACM integrates natively with Elastic Load Balancing, so the certificate
+ * never has to be exportable.
+ *
+ * WebRTC ICE (8189) is deliberately absent. ICE requires direct UDP connectivity
+ * to the media server and reaches the instance's Elastic IP instead — see
+ * MediaEndpoint. That address is advertised to clients inside the WebRTC
+ * negotiation, so it never appears in DNS.
+ *
+ * Target groups are attached to the Auto Scaling Group rather than registered
+ * against the ECS service, which avoids the ECS limit of five load balancer
+ * target groups per service. Task health is still reflected: the health check
+ * probes the API port, which only answers when the task is running.
+ */
 export class MediaNlb extends Construct {
   public readonly loadBalancer: elbv2.NetworkLoadBalancer;
   public readonly securityGroup: ec2.SecurityGroup;
 
-  // Exactly 5 target groups — the ECS Fargate awsvpc limit.
-  //
-  // WebRTC signalling (8889) shares the api target group since both are TCP
-  // and land on container ports handled by the same process.
-  //
-  // WebRTC ICE (8189 UDP/TCP) is intentionally NOT exposed through the NLB.
-  // ICE requires direct UDP connectivity between client and server; NLB UDP
-  // forwarding to Fargate awsvpc containers does not work reliably. WebRTC
-  // clients will use STUN to discover the ECS task's public IP and connect
-  // directly on port 8189, bypassing the NLB for media transport.
+  /**
+   * Keyed by the plaintext container port each group forwards to. TLS listeners
+   * share the group for their plaintext counterpart — RTMPS 1936 and RTMP 1935
+   * both land on the RTMP listener inside the container.
+   */
   public readonly targetGroups: {
     rtmp: elbv2.NetworkTargetGroup;
     rtsp: elbv2.NetworkTargetGroup;
-    srts: elbv2.NetworkTargetGroup;
-    hls: elbv2.NetworkTargetGroup;
+    playback: elbv2.NetworkTargetGroup;
     api: elbv2.NetworkTargetGroup;
+    webrtc: elbv2.NetworkTargetGroup;
+    srts: elbv2.NetworkTargetGroup;
   };
 
   constructor(scope: Construct, id: string, props: MediaNlbProps) {
@@ -44,90 +60,112 @@ export class MediaNlb extends Construct {
 
     this.securityGroup = props.nlbSecurityGroup;
 
-    // Create Network Load Balancer
     this.loadBalancer = new elbv2.NetworkLoadBalancer(this, 'MediaNlb', {
       loadBalancerName: `tak-${props.stackNameComponent.toLowerCase()}-media`,
       vpc: props.vpc,
       internetFacing: true,
       ipAddressType: elbv2.IpAddressType.IPV4,
-      securityGroups: [this.securityGroup]
+      securityGroups: [this.securityGroup],
+      crossZoneEnabled: true,
     });
 
-    // 5 target groups — at the ECS Fargate awsvpc limit
+    // Instance targets rather than IP targets: with host network mode the task
+    // binds directly to the instance's interface, so the instance *is* the
+    // target. The ASG registers and deregisters members automatically.
+    const targetGroup = (
+      name: string,
+      port: number,
+      protocol: elbv2.Protocol
+    ): elbv2.NetworkTargetGroup => new elbv2.NetworkTargetGroup(this, name, {
+      port,
+      protocol,
+      vpc: props.vpc,
+      targetType: elbv2.TargetType.INSTANCE,
+      // Probing the API port means the group tracks task health, not merely
+      // whether the instance booted.
+      //
+      // Timings are deliberately tighter than the AWS defaults (30s interval,
+      // threshold 3, which give 90 seconds in each direction). Those 90 seconds
+      // matter in the two situations where more than one instance is registered:
+      // a replacement instance is not servable for 90s after its task is ready,
+      // and an instance that has lost its task keeps receiving traffic for 90s.
+      // The second case was observed black-holing roughly half of all client
+      // connections during a deployment. At 10s and threshold 2 both windows
+      // shrink to about 20 seconds.
+      //
+      // Both thresholds are kept equal, which NLB has historically required.
+      healthCheck: {
+        protocol: elbv2.Protocol.TCP,
+        port: MEDIAMTX_PORTS.API.toString(),
+        interval: cdk.Duration.seconds(10),
+        timeout: cdk.Duration.seconds(5),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 2,
+      },
+      deregistrationDelay: cdk.Duration.seconds(30),
+    });
+
     this.targetGroups = {
-      rtmp: new elbv2.NetworkTargetGroup(this, 'RtmpTargetGroup', {
-        port: MEDIAMTX_PORTS.RTMP,
-        protocol: elbv2.Protocol.TCP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      rtsp: new elbv2.NetworkTargetGroup(this, 'RtspTargetGroup', {
-        port: MEDIAMTX_PORTS.RTSP,
-        protocol: elbv2.Protocol.TCP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      srts: new elbv2.NetworkTargetGroup(this, 'SrtsTargetGroup', {
-        port: MEDIAMTX_PORTS.SRTS,
-        protocol: elbv2.Protocol.UDP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      hls: new elbv2.NetworkTargetGroup(this, 'HlsTargetGroup', {
-        port: MEDIAMTX_PORTS.HLS_HTTPS,
-        protocol: elbv2.Protocol.TCP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
-      // API target group also handles WebRTC signalling (8889 → same container)
-      // and Playback (9996 → same container), keeping us at exactly 5 groups.
-      api: new elbv2.NetworkTargetGroup(this, 'ApiTargetGroup', {
-        port: MEDIAMTX_PORTS.API_HTTPS,
-        protocol: elbv2.Protocol.TCP,
-        vpc: props.vpc,
-        targetType: elbv2.TargetType.IP,
-        healthCheck: {
-          protocol: elbv2.Protocol.TCP,
-          port: MEDIAMTX_PORTS.API_HTTPS.toString(),
-          interval: cdk.Duration.seconds(30),
-          timeout: cdk.Duration.seconds(10),
-          healthyThresholdCount: 5,
-        },
-      }),
+      rtmp: targetGroup('RtmpTargetGroup', MEDIAMTX_PORTS.RTMP, elbv2.Protocol.TCP),
+      rtsp: targetGroup('RtspTargetGroup', MEDIAMTX_PORTS.RTSP, elbv2.Protocol.TCP),
+      playback: targetGroup('PlaybackTargetGroup', MEDIAMTX_PORTS.PLAYBACK, elbv2.Protocol.TCP),
+      api: targetGroup('ApiTargetGroup', MEDIAMTX_PORTS.API, elbv2.Protocol.TCP),
+      webrtc: targetGroup('WebRtcTargetGroup', MEDIAMTX_PORTS.WEBRTC, elbv2.Protocol.TCP),
+      srts: targetGroup('SrtsTargetGroup', MEDIAMTX_PORTS.SRTS, elbv2.Protocol.UDP),
     };
 
-    const enableInsecurePorts = props.enableInsecurePorts;
+    // TLS-terminating listeners. Each decrypts and forwards to the plaintext
+    // container port behind it.
+    this.loadBalancer.addListener('RtmpsListener', {
+      port: MEDIAMTX_PORTS.RTMPS,
+      protocol: elbv2.Protocol.TLS,
+      certificates: [props.certificate],
+      defaultTargetGroups: [this.targetGroups.rtmp],
+    });
 
-    // Create listeners
-    if (enableInsecurePorts) {
+    this.loadBalancer.addListener('RtspsListener', {
+      port: MEDIAMTX_PORTS.RTSPS,
+      protocol: elbv2.Protocol.TLS,
+      certificates: [props.certificate],
+      defaultTargetGroups: [this.targetGroups.rtsp],
+    });
+
+    this.loadBalancer.addListener('PlaybackListener', {
+      port: MEDIAMTX_PORTS.PLAYBACK,
+      protocol: elbv2.Protocol.TLS,
+      certificates: [props.certificate],
+      defaultTargetGroups: [this.targetGroups.playback],
+    });
+
+    this.loadBalancer.addListener('ApiListener', {
+      port: MEDIAMTX_PORTS.API,
+      protocol: elbv2.Protocol.TLS,
+      certificates: [props.certificate],
+      defaultTargetGroups: [this.targetGroups.api],
+    });
+
+    // WebRTC signalling (WHEP/WHIP). Only the handshake passes through here; the
+    // media itself is DTLS-encrypted over ICE and bypasses the load balancer.
+    this.loadBalancer.addListener('WebRtcListener', {
+      port: MEDIAMTX_PORTS.WEBRTC,
+      protocol: elbv2.Protocol.TLS,
+      certificates: [props.certificate],
+      defaultTargetGroups: [this.targetGroups.webrtc],
+    });
+
+    // SRT provides its own encryption, so it passes through unmodified.
+    //
+    // Construct ID must stay 'SrtsListener'. A load balancer permits only one
+    // listener per port, so renaming it would make CloudFormation attempt to
+    // create the replacement on 8890 before deleting the original, which fails.
+    this.loadBalancer.addListener('SrtsListener', {
+      port: MEDIAMTX_PORTS.SRTS,
+      protocol: elbv2.Protocol.UDP,
+      defaultTargetGroups: [this.targetGroups.srts],
+    });
+
+    // Plaintext ingest listeners, opt-in only.
+    if (props.enableInsecurePorts) {
       this.loadBalancer.addListener('RtmpListener', {
         port: MEDIAMTX_PORTS.RTMP,
         protocol: elbv2.Protocol.TCP,
@@ -141,54 +179,8 @@ export class MediaNlb extends Construct {
       });
     }
 
-    // Secure RTMPS listener (TLS terminated at NLB)
-    this.loadBalancer.addListener('RtmpsListener', {
-      port: MEDIAMTX_PORTS.RTMPS,
-      protocol: elbv2.Protocol.TLS,
-      certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.rtmp],
-    });
-
-    // Secure RTSPS listener (TLS terminated at NLB)
-    this.loadBalancer.addListener('RtspsListener', {
-      port: MEDIAMTX_PORTS.RTSPS,
-      protocol: elbv2.Protocol.TLS,
-      certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.rtsp],
-    });
-
-    // SRTS listener (SRT has built-in encryption)
-    this.loadBalancer.addListener('SrtsListener', {
-      port: MEDIAMTX_PORTS.SRTS,
-      protocol: elbv2.Protocol.UDP,
-      defaultTargetGroups: [this.targetGroups.srts],
-    });
-
-    // HLS HTTPS listener
-    this.loadBalancer.addListener('HlsListener', {
-      port: MEDIAMTX_PORTS.HLS_HTTPS,
-      protocol: elbv2.Protocol.TLS,
-      certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.hls],
-    });
-
-    // API HTTPS listener
-    this.loadBalancer.addListener('ApiListener', {
-      port: MEDIAMTX_PORTS.API_HTTPS,
-      protocol: elbv2.Protocol.TLS,
-      certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.api],
-    });
-
-    // Playback listener — shares api target group (same container, port 9997)
-    this.loadBalancer.addListener('PlaybackListener', {
-      port: 9996,
-      protocol: elbv2.Protocol.TLS,
-      certificates: [props.certificate],
-      defaultTargetGroups: [this.targetGroups.api],
-    });
-
-    // Create Route53 A record
+    // Clients only ever resolve this name. The Elastic IP used for ICE is
+    // communicated inside the WebRTC negotiation instead.
     new route53.ARecord(this, 'MediaARecord', {
       zone: props.hostedZone,
       recordName: props.mediaHostname,
@@ -196,5 +188,10 @@ export class MediaNlb extends Construct {
         new route53targets.LoadBalancerTarget(this.loadBalancer)
       ),
     });
+  }
+
+  /** All target groups, for attaching to the Auto Scaling Group */
+  public allTargetGroups(): elbv2.NetworkTargetGroup[] {
+    return Object.values(this.targetGroups);
   }
 }

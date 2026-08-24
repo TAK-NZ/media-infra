@@ -10,7 +10,17 @@ import { StandardResponse } from './lib/types.js';
 
 const pkg = JSON.parse(String(fs.readFileSync(new URL('./package.json', import.meta.url))));
 
+/**
+ * Loopback-only port MediaMTX calls for authentication. Kept on 127.0.0.1: under
+ * host network mode a wildcard bind would be internet-facing.
+ */
 const INTERNAL_AUTH_PORT = 9995;
+
+/**
+ * API and HLS proxy port. Plaintext HTTP — the Network Load Balancer terminates
+ * TLS and forwards decrypted traffic here.
+ */
+const API_PORT = 9997;
 
 process.on('uncaughtExceptionMonitor', (exception, origin) => {
     console.trace('FATAL', exception, origin);
@@ -86,14 +96,14 @@ export default async function server(config: Config): Promise<void> {
         }
     );
 
-    const nodeServer = http.createServer(app);
+    const apiServer = http.createServer(app);
     const authServer = http.createServer(app);
 
     return new Promise((resolve) => {
         authServer.listen(INTERNAL_AUTH_PORT, '127.0.0.1', () => {
-            nodeServer.listen(9997, () => {
+            apiServer.listen(API_PORT, () => {
                 if (!config.silent) {
-                    console.log(`ok - http://localhost:9997`);
+                    console.log(`ok - http://localhost:${API_PORT}`);
                     console.log(`ok - http://127.0.0.1:${INTERNAL_AUTH_PORT}`);
                 }
 

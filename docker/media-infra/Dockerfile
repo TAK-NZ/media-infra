@@ -34,8 +34,13 @@ RUN git clone --depth 1 --branch "${MEDIAMTX_BRANCH}" "${MEDIAMTX_REPO}" .
 RUN set -eux; \
 	echo "v0.0.0-custom" > internal/core/VERSION; \
 	go generate ./...; \
-	targetos="${TARGETOS:-$(go env GOOS)}"; \
-	targetarch="${TARGETARCH:-$(go env GOARCH)}"; \
+	# Capture the builder's own platform before GOOS/GOARCH are overridden for
+	# cross-compilation, so the smoke test below can tell whether the resulting
+	# binary is actually executable here.
+	hostos="$(go env GOOS)"; \
+	hostarch="$(go env GOARCH)"; \
+	targetos="${TARGETOS:-$hostos}"; \
+	targetarch="${TARGETARCH:-$hostarch}"; \
 	targetvariant="${TARGETVARIANT:-}"; \
 	export CGO_ENABLED=0 GOOS="${targetos}" GOARCH="${targetarch}"; \
 	goarm="${targetvariant#v}"; \
@@ -47,10 +52,19 @@ RUN set -eux; \
 		linux/arm64) file /mediamtx | grep -Eq 'ELF 64-bit.*(aarch64|ARM)' ;; \
 		linux/arm) file /mediamtx | grep -q 'ELF 32-bit.*ARM' ;; \
 	esac; \
-	if [ "${targetos}" = "$(go env GOOS)" ] && [ "${targetarch}" = "$(go env GOARCH)" ]; then /mediamtx --version; fi
+	if [ "${targetos}" = "${hostos}" ] && [ "${targetarch}" = "${hostarch}" ]; then \
+		/mediamtx --version; \
+	else \
+		echo "cross-compiled ${targetos}/${targetarch} on ${hostos}/${hostarch}; skipping version check"; \
+	fi
 
 # Final Stage
 FROM ${MEDIAMTX_BASE_IMAGE}
+
+# This stage deliberately contains no RUN steps. Its commands would execute as
+# TARGETARCH, which cannot run when cross-building for ARM64 from an x86-64 host
+# unless QEMU binfmt handlers are registered. Nothing needs installing: TLS is
+# terminated at the load balancer, so no certificate tooling is required.
 
 # Replace the pre-built MediaMTX binary with our source-built one
 COPY --from=mediamtx-builder /mediamtx /mediamtx
@@ -58,23 +72,29 @@ COPY --from=mediamtx-builder /mediamtx /mediamtx
 # Copy a target-platform Node runtime without executing package-manager steps
 COPY --from=node-runtime /usr/local/ /usr/local/
 
+# Ports below are the plaintext listeners the load balancer forwards to. The
+# TLS-fronted ports (RTMPS 1936, RTSPS 8555) terminate at the load balancer and
+# are never bound by the container.
+
+# RTMP
+EXPOSE 1935
+
+# RTSP
+EXPOSE 8554
+
 # SRT
-EXPOSE 8890
-
-# API
-EXPOSE 9997
-
-# Metrics
-EXPOSE 9998
-
-# PPROF
-EXPOSE 9999
+EXPOSE 8890/udp
 
 # Playback
 EXPOSE 9996
 
-# HLS
-EXPOSE 8888
+# CloudTAK media API and HLS proxy
+EXPOSE 9997
+
+# WebRTC signalling and ICE (UDP with TCP fallback)
+EXPOSE 8889
+EXPOSE 8189
+EXPOSE 8189/udp
 
 COPY docker-container/mediamtx.yml /mediamtx.yml
 COPY docker-container/start /start

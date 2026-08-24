@@ -1,8 +1,28 @@
 import { MediaInfraStack } from '../../lib/media-infra-stack';
 import { CDKTestHelper } from '../__helpers__/cdk-test-utils';
 import { mockDevConfig } from '../__fixtures__/mock-configs';
+import { validateMediaMtxConfig } from '../../lib/utils/validation';
 
 describe('Configuration Validation Tests', () => {
+  describe('EC2 capacity', () => {
+    it('accepts a single-instance Auto Scaling Group', () => {
+      expect(() => validateMediaMtxConfig({
+        ...mockDevConfig,
+        ec2: { ...mockDevConfig.ec2, minCapacity: 1, maxCapacity: 1 }
+      })).not.toThrow();
+    });
+
+    // A stream exists only on the MediaMTX process it was published to, and the
+    // NLB target groups follow ASG membership rather than task placement, so any
+    // extra instance is a registered target running no task.
+    it('rejects a maximum capacity above one', () => {
+      expect(() => validateMediaMtxConfig({
+        ...mockDevConfig,
+        ec2: { ...mockDevConfig.ec2, minCapacity: 1, maxCapacity: 2 }
+      })).toThrow(/maximum capacity must be 1/);
+    });
+  });
+
   describe('Basic Configuration Tests', () => {
     it('validates dev configuration structure', () => {
       expect(mockDevConfig.stackName).toBe('Dev');

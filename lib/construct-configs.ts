@@ -14,10 +14,13 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
  */
 export interface InfrastructureConfig {
   vpc: ec2.IVpc;
+  /** Dedicated EC2-backed cluster created by this stack */
   ecsCluster: ecs.ICluster;
   kmsKey: kms.IKey;
   securityGroups: {
-    mediaMtx: ec2.SecurityGroup;
+    /** Applied to the EC2 container instance; with host networking this fronts the container */
+    instance: ec2.SecurityGroup;
+    /** Applied to the Network Load Balancer */
     nlb: ec2.SecurityGroup;
     efs: ec2.SecurityGroup;
   };
