@@ -77,6 +77,7 @@ jobs:
           
           echo "ecr-repo-uri=$ECR_REPO_URI" >> $GITHUB_OUTPUT
           echo "mediamtx-tag=$MEDIAMTX_TAG" >> $GITHUB_OUTPUT
+          echo "mediamtx-version=$VERSION" >> $GITHUB_OUTPUT
           echo "Using ECR repository: $ECR_REPO_URI"
           echo "Building MediaMTX image with tag: $MEDIAMTX_TAG"
       
@@ -86,6 +87,20 @@ jobs:
             docker login --username AWS --password-stdin \
             ${{ steps.tags.outputs.ecr-repo-uri }}
       
+      # QEMU covers only the stages that must execute target-architecture
+      # binaries (the final stage's apk add). The Go and npm builds run natively
+      # on the amd64 runner and cross-compile, so emulation cost stays small.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      # buildx is required, not optional. The Dockerfile pins its builder stages
+      # with --platform=$BUILDPLATFORM, and BUILDPLATFORM is only populated by
+      # BuildKit; under the classic builder it expands to nothing.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and Push MediaMTX Image
         run: |
           # Check if image already exists
@@ -94,15 +109,22 @@ jobs:
           else
             echo "🔨 Building MediaMTX image ${{ steps.tags.outputs.mediamtx-tag }}"
             
-            docker build \
+            # linux/arm64 must match the Graviton (t4g) instances the capacity
+            # provider launches. Building amd64 here produced an image that died
+            # at runtime with: exec /start: exec format error
+            #
+            # Build args mirror lib/constructs/media-ecs-service.ts so that a
+            # pre-built image and a CDK-built image are the same artefact.
+            docker buildx build \
               -f docker/media-infra/Dockerfile \
-              --platform linux/amd64 \
+              --platform linux/arm64 \
+              --build-arg MEDIAMTX_BASE_IMAGE=bluenviron/mediamtx:${{ steps.tags.outputs.mediamtx-version }}-ffmpeg \
+              --build-arg MEDIAMTX_BRANCH=v${{ steps.tags.outputs.mediamtx-version }} \
               --no-cache \
-              --rm \
               -t ${{ steps.tags.outputs.ecr-repo-uri }}:${{ steps.tags.outputs.mediamtx-tag }} \
+              --push \
               .
             
-            docker push ${{ steps.tags.outputs.ecr-repo-uri }}:${{ steps.tags.outputs.mediamtx-tag }}
             echo "✅ MediaMTX image pushed successfully"
           fi
       

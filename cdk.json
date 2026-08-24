@@ -48,7 +48,7 @@
       },
       "mediamtx": {
         "version": "1.19.0",
-        "buildRevision": 1
+        "buildRevision": 2
       }
     },
     "prod": {
@@ -82,7 +82,7 @@
       },
       "mediamtx": {
         "version": "1.19.0",
-        "buildRevision": 1
+        "buildRevision": 2
       }
     },
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,

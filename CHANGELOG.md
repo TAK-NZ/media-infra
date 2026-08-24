@@ -56,6 +56,29 @@ migration, so publishers are dropped by the cutover regardless.
 - :bug: Disable Availability Zone Rebalancing. ECS rejects `maximumPercent <= 100` while it is on, and it defaults to on for new services. There is nothing for it to do here: a single task on a single instance has no uneven AZ distribution to correct, and letting ECS move the task between AZs is the instance churn this stack is trying to avoid
 - :white_check_mark: Update the deployment-safety test to assert stop-then-start
 
+#### Build pre-built images for ARM64
+
+The CI image build was still targeting `linux/amd64` while the EC2 migration moved
+the service onto Graviton (`t4g`) instances. A deploy with
+`usePreBuiltImages=true` therefore pulled an amd64 image onto an ARM64 host and
+every task died immediately:
+
+```
+exec /start: exec format error
+Container "MediaMtxContainer" exited with code 255
+```
+
+Three tasks failed in a row, the deployment circuit breaker tripped, and the
+stack rolled back. The CDK-built path was never affected because it already sets
+`platform: ecrAssets.Platform.LINUX_ARM64`; only the workflow was left behind.
+
+- :bug: Build with `--platform linux/arm64` in both the demo and production image workflows
+- :bug: Switch from `docker build` to `docker buildx build`. This is required rather than cosmetic: the Dockerfile pins its builder stages with `--platform=$BUILDPLATFORM`, which only BuildKit populates — under the classic builder it expands to nothing
+- :bug: Add `docker/setup-qemu-action`, needed for the stages that must execute target-architecture binaries. The Go and npm builds run natively on the amd64 runner and cross-compile, so emulation is limited to the final stage
+- :bug: Pass `MEDIAMTX_BASE_IMAGE` and `MEDIAMTX_BRANCH` build args, which the workflow omitted, so a pre-built image and a CDK-built image are now the same artefact rather than silently diverging from the configured version
+- :bug: Bump `mediamtx.buildRevision` to 2 in both environments. The workflow skips the build when the tag already exists, so the existing amd64 `mediamtx-1.19.0-r1` images would otherwise be reused and the failure would repeat
+- :rocket: Push via `buildx --push` instead of a separate `docker push`, which writes the manifest correctly for a single-platform build
+
 #### Scope the Docker build context
 
 The container asset is defined with `directory: '.'` and there was no
