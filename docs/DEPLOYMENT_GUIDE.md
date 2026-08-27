@@ -29,12 +29,10 @@ npm run deploy:prod
 
 ## **📋 Environment Configurations**
 
-| Environment | Stack Name | Domain | Cost/Month* | Features |
-|-------------|------------|--------|-------------|----------|
-| **dev-test** | `TAK-Dev-MediaInfra` | `media.dev.tak.nz` | ~$25 | Cost-optimized, single task |
-| **prod** | `TAK-Prod-MediaInfra` | `media.tak.nz` | ~$85 | High availability, single task |
-
-*Estimated AWS costs in USD excluding data transfer and streaming usage.
+| Environment | Stack Name | Domain | Features |
+|-------------|------------|--------|----------|
+| **dev-test** | `TAK-Dev-MediaInfra` | `media.dev.tak.nz` | Cost-optimized, single task |
+| **prod** | `TAK-Prod-MediaInfra` | `media.tak.nz` | High availability, single task |
 
 ---
 

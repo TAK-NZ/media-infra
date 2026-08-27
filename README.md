@@ -12,52 +12,12 @@ It is specifically targeted at the deployment of [TAK.NZ](https://tak.nz) via a 
 
 ### Architecture Layers
 
-This media infrastructure requires the base infrastructure, authentication infrastructure, TAK infrastructure, and CloudTAK layers. Layers can be deployed in multiple independent environments. As an example:
+This media infrastructure requires the base infrastructure, authentication infrastructure, TAK
+infrastructure, and CloudTAK layers, each deployed as a separate stack from its own repository.
 
-```
-        PRODUCTION ENVIRONMENT                DEVELOPMENT ENVIRONMENT
-        Domain: tak.nz                        Domain: dev.tak.nz
-
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│        MediaInfra               │    │        MediaInfra               │
-│    CloudFormation Stack         │    │    CloudFormation Stack         │
-│      (This Repository)          │    │      (This Repository)          │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-                │                                        │
-                ▼                                        ▼
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│         CloudTAK                │    │         CloudTAK                │
-│    CloudFormation Stack         │    │    CloudFormation Stack         │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-                │                                        │
-                ▼                                        ▼
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│         TakInfra                │    │         TakInfra                │
-│    CloudFormation Stack         │    │    CloudFormation Stack         │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-                │                                        │
-                ▼                                        ▼
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│        AuthInfra                │    │        AuthInfra                │
-│    CloudFormation Stack         │    │    CloudFormation Stack         │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-                │                                        │
-                ▼                                        ▼
-┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│        BaseInfra                │    │        BaseInfra                │
-│    CloudFormation Stack         │    │    CloudFormation Stack         │
-└─────────────────────────────────┘    └─────────────────────────────────┘
-```
-
-| Layer | Repository | Description |
-|-------|------------|-------------|
-| **BaseInfra** | [`base-infra`](https://github.com/TAK-NZ/base-infra)  | Foundation: VPC, ECS, S3, KMS, ACM |
-| **AuthInfra** | [`auth-infra`](https://github.com/TAK-NZ/auth-infra) | SSO via Authentik, LDAP |
-| **TakInfra** | [`tak-infra`](https://github.com/TAK-NZ/tak-infra) | TAK Server |
-| **CloudTAK** | [`CloudTAK`](https://github.com/TAK-NZ/CloudTAK) | CloudTAK web interface, ETL, and media services |
-| **MediaInfra** | `media-infra` (this repo) | MediaMTX streaming server |
-
-**Deployment Order**: BaseInfra must be deployed first, followed by AuthInfra, TakInfra, CloudTAK, and finally MediaInfra. Each layer imports outputs from layers below via CloudFormation exports.
+For the full layer diagram and deployment order across all TAK.NZ repositories, see the
+[TAK.NZ organization overview](https://github.com/TAK-NZ). That diagram is maintained in one place
+so it stays current as layers are added.
 
 ## Quick Start
 
@@ -192,15 +152,13 @@ manifests to signed URLs — exposing 8888 would bypass both.
 
 ## Available Environments
 
-| Environment | Stack Name | Description | Domain | Instance | Monthly Cost* |
-|-------------|------------|-------------|--------|----------|---------------|
-| `dev-test` | `TAK-Dev-MediaInfra` | Cost-optimized development | `media.dev.tak.nz` | `t4g.large` | ~$90 USD |
-| `prod` | `TAK-Prod-MediaInfra` | Production | `media.tak.nz` | `t4g.xlarge` | ~$160 USD |
+| Environment | Stack Name | Description | Domain | Instance |
+|-------------|------------|-------------|--------|----------|
+| `dev-test` | `TAK-Dev-MediaInfra` | Cost-optimized development | `media.dev.tak.nz` | `t4g.large` |
+| `prod` | `TAK-Prod-MediaInfra` | Production | `media.tak.nz` | `t4g.xlarge` |
 
-*Rough estimates in USD for ap-southeast-2, excluding data transfer and streaming
-usage. Dominated by the EC2 instance plus the load balancer. These are higher than
-the earlier Fargate-based figures because the service now runs on a continuously
-running instance — the trade for WebRTC support.
+The service runs on a continuously running EC2 instance rather than Fargate - the
+trade for WebRTC support.
 
 ## Development Workflow
 
@@ -296,5 +254,5 @@ npm run deploy:dev -- --context mediamtxVersion=1.19.0
 ## License
 
 TAK.NZ is distributed under [AGPL-3.0-only](LICENSE)
-Copyright (C) 2025 - Christian Elsen, Team Awareness Kit New Zealand (TAK.NZ)
+Copyright (C) 2026 - Christian Elsen, Team Awareness Kit New Zealand (TAK.NZ)
 Copyright (c) 2023 Public Safety TAK

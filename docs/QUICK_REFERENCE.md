@@ -81,7 +81,6 @@ npm run deploy:dev -- --context r53ZoneName=custom.tak.nz
 | **Task Count** | 1 | 1 |
 | **CPU/Memory** | 512/1024 | 1024/2048 |
 | **Insecure Ports** | Optional | Disabled |
-| **Cost/Month** | ~$25 USD | ~$85 USD |
 
 ---
 
