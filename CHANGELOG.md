@@ -11,6 +11,12 @@
 ## Version History
 
 ### Pending Release
+#### Set the npm audit policy for the bundled minimatch finding
+`npm audit` reports two moderate findings on aws-cdk-lib 2.277.0 (the latest release)
+and aws-cdk 2.1148.1. They share one root cause: GHSA-g3hv-75wg-m249 in the copy of
+minimatch 10.2.6 that is bundled inside aws-cdk-lib. npm overrides do not apply to
+bundled dependencies, and the fix (aws/aws-cdk PR #39595) is not in a release yet.
+- :rocket: Add `.npmrc` with `audit-level=critical` so `npm audit` fails only on critical findings, with a comment recording the cause and when to remove it
 
 #### Pin the container instance count to one
 
