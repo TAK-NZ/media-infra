@@ -11,6 +11,13 @@
 ## Version History
 
 ### Pending Release
+#### Keep the instance type during the Demo prod window
+The Demo pipeline deploys the `prod` profile and then reverts to `dev-test`. The prod profile's `t4g.xlarge` was
+written to the launch template for the length of the window, flipping it between `t4g.xlarge` and `t4g.large` on every
+run. A running instance is never replaced when the template changes, so the oversized Demo instance launched during an
+earlier prod window stayed a `t4g.xlarge` from August to November 2026 (it was replaced by hand with an instance refresh,
+and Test was already a `t4g.large`).
+- :bug: The prod-window deploy in `demo-deploy.yml` passes `--context instanceType=<dev-test instance type>`, read from `cdk.json`, so the launch template no longer changes during the window
 #### Set the npm audit policy for the bundled minimatch finding
 `npm audit` reports two moderate findings on aws-cdk-lib 2.277.0 (the latest release)
 and aws-cdk 2.1148.1. They share one root cause: GHSA-g3hv-75wg-m249 in the copy of
