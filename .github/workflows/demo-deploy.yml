@@ -84,9 +84,15 @@ jobs:
           MEDIAMTX_TAG="mediamtx-${VERSION}-r${REVISION}"
           
           echo "mediamtx-tag=$MEDIAMTX_TAG" >> $GITHUB_OUTPUT
+          # The prod window must keep the dev-test instance type. The prod profile's larger type would
+          # otherwise be written to the launch template for the length of the window, and an instance
+          # launched during it (a health replacement, or the first deploy after a change) would stay
+          # that size after the revert: nothing replaces a running instance when the template changes.
+          INSTANCE_TYPE=$(jq -r '.context."dev-test".ec2.instanceType' cdk.json)
+          echo "instance-type=$INSTANCE_TYPE" >> $GITHUB_OUTPUT
 
       - name: Deploy Demo with Prod Profile
-        run: npm run cdk deploy -- --context envType=prod --context stackName=${{ vars.DEMO_STACK_NAME }} --context usePreBuiltImages=true --context mediamtxImageTag=${{ steps.images.outputs.mediamtx-tag }} --require-approval never
+        run: npm run cdk deploy -- --context envType=prod --context stackName=${{ vars.DEMO_STACK_NAME }} --context instanceType=${{ steps.images.outputs.instance-type }} --context usePreBuiltImages=true --context mediamtxImageTag=${{ steps.images.outputs.mediamtx-tag }} --require-approval never
 
       - name: Wait for Testing Period
         run: sleep ${{ vars.DEMO_TEST_DURATION || '300' }}
