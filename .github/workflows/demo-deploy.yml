@@ -60,6 +60,9 @@ jobs:
   # Uses built images and runs automated tests
   deploy-and-test:
     runs-on: ubuntu-latest
+    # A healthy deploy takes a few minutes plus the testing period. Fail early on a stuck ECS deployment
+    # instead of running until the AWS session token expires.
+    timeout-minutes: 30
     environment: demo
     needs: [validate-prod, build-images]
     outputs:
@@ -90,9 +93,15 @@ jobs:
           # that size after the revert: nothing replaces a running instance when the template changes.
           INSTANCE_TYPE=$(jq -r '.context."dev-test".ec2.instanceType' cdk.json)
           echo "instance-type=$INSTANCE_TYPE" >> $GITHUB_OUTPUT
+          # The prod task size (2 vCPU, 8 GiB) cannot be placed on the dev-test instance (t4g.large has
+          # 8 GiB in total), so the ECS deployment would never stabilise. Keep the dev-test task size too.
+          TASK_CPU=$(jq -r '.context."dev-test".ecs.taskCpu' cdk.json)
+          TASK_MEMORY=$(jq -r '.context."dev-test".ecs.taskMemory' cdk.json)
+          echo "task-cpu=$TASK_CPU" >> $GITHUB_OUTPUT
+          echo "task-memory=$TASK_MEMORY" >> $GITHUB_OUTPUT
 
       - name: Deploy Demo with Prod Profile
-        run: npm run cdk deploy -- --context envType=prod --context stackName=${{ vars.DEMO_STACK_NAME }} --context instanceType=${{ steps.images.outputs.instance-type }} --context usePreBuiltImages=true --context mediamtxImageTag=${{ steps.images.outputs.mediamtx-tag }} --require-approval never
+        run: npm run cdk deploy -- --context envType=prod --context stackName=${{ vars.DEMO_STACK_NAME }} --context instanceType=${{ steps.images.outputs.instance-type }} --context taskCpu=${{ steps.images.outputs.task-cpu }} --context taskMemory=${{ steps.images.outputs.task-memory }} --context usePreBuiltImages=true --context mediamtxImageTag=${{ steps.images.outputs.mediamtx-tag }} --require-approval never
 
       - name: Wait for Testing Period
         run: sleep ${{ vars.DEMO_TEST_DURATION || '300' }}

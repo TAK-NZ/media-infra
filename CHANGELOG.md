@@ -11,6 +11,13 @@
 ## Version History
 
 ### Pending Release
+#### Keep the dev-test task size during the Demo prod window
+Run 44428468381 of the Demo pipeline hung for an hour in the prod-window deploy until the AWS session token expired
+(`ExpiredToken`), which also blocked the revert job because the stack was still `UPDATE_IN_PROGRESS`. The cause was the
+previous change: the prod profile's task (2 vCPU, 8 GiB) no longer fits on the `t4g.large` instance (8 GiB in total), so
+ECS could never place the new task and the service deployment never stabilised.
+- :bug: The prod-window deploy in `demo-deploy.yml` also passes `--context taskCpu` and `--context taskMemory` from the dev-test profile in `cdk.json`
+- :bug: The `deploy-and-test` job has `timeout-minutes: 30`, so a stuck deployment fails early
 #### Keep the instance type during the Demo prod window
 The Demo pipeline deploys the `prod` profile and then reverts to `dev-test`. The prod profile's `t4g.xlarge` was
 written to the launch template for the length of the window, flipping it between `t4g.xlarge` and `t4g.large` on every
