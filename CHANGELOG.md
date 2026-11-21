@@ -11,6 +11,12 @@
 ## Version History
 
 ### Pending Release
+#### Fix deleting the stack
+
+- :bug: Deleting the MediaInfra stack failed with `The specified capacity provider is in use and cannot be removed` on `MediaComputeMediaCluster…` (`AWS::ECS::ClusterCapacityProviderAssociations`) and needed a manual scale-down of the Auto Scaling group. CloudFormation removes the capacity provider from the cluster before it deletes the group, and ECS refuses while the one container instance is still registered. The group has a minimum of one instance and managed scaling never removes the last one, so this happened on every delete (seen on `TAK-Akl-MediaInfra` in ap-southeast-6).
+- :tada: New `MediaClusterDrain` construct, a custom resource that does nothing on create and update and, on delete, sets the Auto Scaling group to zero instances and waits (up to 15 minutes, checking every 15 seconds) until no container instance is registered in the cluster. The ECS service depends on it, so on delete the service goes first, then the cluster is emptied, then the capacity provider is removed. It also depends on the Auto Scaling group with its ECS drain hook, so the hook still works and drains the instance cleanly. Without that dependency the instance sat in `Terminating:Wait` for about four minutes after the hook Lambda had been deleted. Deploying adds two small Lambda functions, the custom resource provider and its state machine. Nothing changes for the running instance.
+- :white_check_mark: Tests for the handlers (create and update do nothing, delete scales to zero, a missing group or cluster is fine, other errors fail) and for the delete ordering in the template. Not yet tested by deleting a real stack.
+
 #### Upgrade CDK and clear the npm audit findings
 aws-cdk-lib 2.278.0 bundles minimatch 11.x, which fixes GHSA-g3hv-75wg-m249, so `npm audit` reports no findings and the
 critical-only audit policy is no longer needed.
