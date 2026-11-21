@@ -11,6 +11,14 @@
 ## Version History
 
 ### Pending Release
+#### Upgrade CDK and clear the npm audit findings
+aws-cdk-lib 2.278.0 bundles minimatch 11.x, which fixes GHSA-g3hv-75wg-m249, so `npm audit` reports no findings and the
+critical-only audit policy is no longer needed.
+- :arrow_up: Upgrade `aws-cdk-lib` to 2.278.0, `aws-cdk` to 2.1149.0 and `@types/node` to 26.6.6
+- :rocket: Remove `.npmrc` (`audit-level=critical`), as its own comment instructs once the finding clears
+> [!NOTE]
+> TypeScript stays on 6.0.3. TypeScript 7 removes the JavaScript compiler API that `ts-jest` and `ts-node` need, and
+> `ts-jest` 29.4.15 only supports TypeScript below 7.
 #### Keep the dev-test task size during the Demo prod window
 Run 44428468381 of the Demo pipeline hung for an hour in the prod-window deploy until the AWS session token expired
 (`ExpiredToken`), which also blocked the revert job because the stack was still `UPDATE_IN_PROGRESS`. The cause was the
