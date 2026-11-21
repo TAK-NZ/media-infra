@@ -8,6 +8,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { ContextEnvironmentConfig } from '../stack-config';
+import { MediaClusterDrain } from './media-cluster-drain';
 import { MEDIAMTX_PORTS } from '../utils/constants';
 
 export interface MediaEc2ComputeProps {
@@ -41,6 +42,8 @@ export interface MediaEc2ComputeProps {
 export class MediaEc2Compute extends Construct {
   public readonly cluster: ecs.Cluster;
   public readonly capacityProvider: ecs.AsgCapacityProvider;
+  /** Delete-time drain of the cluster. Make the ECS service depend on it so the service is deleted first. */
+  public readonly clusterDrain: MediaClusterDrain;
   public readonly autoScalingGroup: autoscaling.AutoScalingGroup;
 
   constructor(scope: Construct, id: string, props: MediaEc2ComputeProps) {
@@ -137,6 +140,12 @@ export class MediaEc2Compute extends Construct {
     });
 
     this.cluster.addAsgCapacityProvider(this.capacityProvider);
+
+    // Scales the group to zero on stack deletion; without it the capacity provider cannot be removed.
+    this.clusterDrain = new MediaClusterDrain(this, 'ClusterDrain', {
+      cluster: this.cluster,
+      autoScalingGroup: this.autoScalingGroup,
+    });
 
     // Register instances with the load balancer. Doing this on the ASG rather
     // than the ECS service sidesteps the five-target-groups-per-service ECS

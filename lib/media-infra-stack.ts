@@ -257,6 +257,8 @@ export class MediaInfraStack extends cdk.Stack {
 
     // The EFS mount targets must exist before a task tries to mount them.
     mediaService.service.node.addDependency(mediaEfs.fileSystem.mountTargetsAvailable);
+    // On stack deletion the service goes first, then the cluster is emptied, then the capacity provider is removed.
+    mediaService.service.node.addDependency(compute.clusterDrain);
 
     // =================
     // STACK OUTPUTS
