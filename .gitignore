@@ -8,6 +8,8 @@ node_modules
 !*.config.js
 !eslint.config.js
 !jest.config.js
+# Hand-written Lambda handlers bundled as CDK assets (not compiled output)
+!lib/constructs/assets/**/*.js
 
 # CDK asset staging directory
 .cdk.staging
